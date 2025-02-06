@@ -13,8 +13,6 @@ def lean_comments_ranges(
     lean_code: str, multiline_comment_suffix: str = "", remove_single_line_comments: bool = True
 ) -> list[tuple[int, int]]:
     """Extract the ranges of Lean comments from a Lean code snippet."""
-    # TODO: this method does not handle strings and other potential edge cases (i.e. this method will probably crash if `/-`, `-/` or `--` are used in a string)
-
     # multiline comments
     open_comment_indices = [m.start() for m in re.finditer(r"/-" + multiline_comment_suffix, lean_code)]
     close_comment_indices = [
@@ -93,8 +91,6 @@ def split_implementation(declaration: str, start: int = 0):
                 counters[closing[c]] -= 1
             if all([v == 0 for v in counters.values()]) and (i + start) in indices:
                 return i + start + 2
-
-    # TODO: handle other cases where the implementation starts with something else than ":="
     return None
 
 

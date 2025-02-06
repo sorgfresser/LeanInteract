@@ -237,19 +237,3 @@ Two versions of Lean servers are available:
 ### Custom Lean REPL
 
 To use a forked Lean REPL project, specify the git repository using the `repl_git` parameter in the `LeanREPLConfig`. Your fork should have a similar format to <https://github.com/augustepoiroux/repl>. For assistance, feel free to contact [us](mailto:auguste.poiroux@epfl.ch).
-
-## Citation
-
-[Improving Autoformalization using Type Checking](https://arxiv.org/abs/2406.07222)
-
-```bibtex
-@misc{poiroux2024improvingautoformalizationusingtype,
-    title={Improving Autoformalization using Type Checking}, 
-    author={Auguste Poiroux and Gail Weiss and Viktor Kunčak and Antoine Bosselut},
-    year={2024},
-    eprint={2406.07222},
-    archivePrefix={arXiv},
-    primaryClass={cs.CL},
-    url={https://arxiv.org/abs/2406.07222}, 
-}
-```

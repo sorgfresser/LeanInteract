@@ -6,7 +6,21 @@
 #     "rich",
 # ]
 # ///
-"""Module for verifying equivalence of Lean formalizations using BEqL and BEq+ metrics (https://arxiv.org/abs/2406.07222)"""
+"""Module for verifying equivalence of Lean formalizations using BEqL and BEq+ metrics
+
+Citation:
+```bibtex
+@misc{poiroux2024improvingautoformalizationusingtype,
+    title={Improving Autoformalization using Type Checking},
+    author={Auguste Poiroux and Gail Weiss and Viktor Kunčak and Antoine Bosselut},
+    year={2024},
+    eprint={2406.07222},
+    archivePrefix={arXiv},
+    primaryClass={cs.CL},
+    url={https://arxiv.org/abs/2406.07222},
+}
+```
+"""
 
 import json
 import os
