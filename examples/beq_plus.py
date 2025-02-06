@@ -6,6 +6,8 @@
 #     "rich",
 # ]
 # ///
+"""Module for verifying equivalence of Lean formalizations using BEqL and BEq+ metrics (https://arxiv.org/abs/2406.07222)"""
+
 import json
 import os
 import sys
@@ -30,13 +32,69 @@ from utils import (
 )
 
 
+def check_proof_sub(
+    server: AutoLeanServer,
+    formal_code: str,
+    context_env: int,
+    formal_2_start_line: int,
+    proof: str,
+    timeout: int,
+    indent_level: int = 2,
+) -> str | None:
+    """
+    Runs Lean code appended with a given proof and checks its validity.
+
+    Args:
+        server: Instance of AutoLeanServer.
+        formal_code: Concatenated Lean formalizations.
+        context_env: Execution environment from the Lean server.
+        formal_2_start_line: Starting line number of the second formalization.
+        proof: Proof tactic string to run.
+        timeout: Timeout in seconds for the Lean server execution.
+        indent_level: Indentation level for the proof block.
+
+    Returns:
+        The proof string (or an extracted exact proof) if valid; None otherwise.
+    """
+    prepended = "\nintros\nsymm_saturate\n"
+    try:
+        lean_output = server.run_code(
+            formal_code + indent_code(prepended + proof, indent_level),
+            env=context_env,
+            timeout=timeout,
+        )
+        if proof == "sorry":
+            if is_valid_lean(lean_output, start_line=formal_2_start_line):
+                return proof
+            return None
+
+        if is_valid_lean(lean_output, start_line=formal_2_start_line, allow_sorry=False):
+            if proof == "exact?":
+                return extract_exact_proof(lean_output, proof_start_line=formal_2_start_line)
+            return proof
+    except TimeoutError:
+        pass
+    except (ConnectionAbortedError, json.JSONDecodeError) as e:
+        console.log(f"Error during proof checking: {e}")
+    return None
+
+
 def beql(
     formalization_1: str, formalization_2: str, src_header: str, repl_config: LeanREPLConfig, timeout_per_proof: int
 ) -> bool:
     """
-    Check if two formalizations are equivalent using the BEqL metric (https://arxiv.org/abs/2406.07222).
-    """
+    Checks equivalence of two formalizations using the BEqL metric.
 
+    Args:
+        formalization_1: First Lean formalization as a string.
+        formalization_2: Second Lean formalization as a string.
+        src_header: Lean source header.
+        repl_config: Configuration for the Lean REPL.
+        timeout_per_proof: Timeout for each proof check in seconds.
+
+    Returns:
+        True if both directions of the equivalence hold; False otherwise.
+    """
     server = AutoLeanServer(config=repl_config)
     context_env = server.run_code(src_header, add_to_session_cache=True)["env"]
 
@@ -52,42 +110,17 @@ def beql(
             formal_2_start_line = formal_1_code.count("\n") + 1
             formal_2_code = f"{clean_last_theorem_string(reform_thm, reformulated_thm_name, add_sorry=False)} by"
         except ValueError:
-            # we cannot change one of the theorems name, probably because it is invalid, so we skip
+            # Invalid theorems encountered, skip this pair.
             continue
 
-        def check_proof_sub(proof: str, formal_code: str = formal_1_code + formal_2_code) -> str | None:
-            prepended_proof = "\nintros\nsymm_saturate\n"
-            try:
-                lean_output = server.run_code(
-                    formal_code + indent_code(prepended_proof + proof, 2),
-                    env=context_env,
-                    timeout=timeout_per_proof,
-                )
-
-                if proof == "sorry":
-                    # sorry is used on purpose to check if the formalization is well-typed
-                    if is_valid_lean(lean_output, start_line=formal_2_start_line):
-                        return proof
-                    return None
-
-                if is_valid_lean(lean_output, start_line=formal_2_start_line, allow_sorry=False):
-                    if proof == "exact?":
-                        return extract_exact_proof(lean_output, proof_start_line=formal_2_start_line)
-                    return proof
-            except TimeoutError:
-                pass
-            except (ConnectionAbortedError, json.JSONDecodeError) as e:
-                console.log(f"Error during proof checking: {e}")
-                pass
-
-            return None
-
-        # to avoid losing time, we first check if the formalizations are well-typed
-        if check_proof_sub("sorry") is None:
+        formal_code = formal_1_code + formal_2_code
+        # Preliminary check to ensure the formalization is well-typed.
+        if check_proof_sub(server, formal_code, context_env, formal_2_start_line, "sorry", timeout_per_proof) is None:
             continue
 
-        # 1. Use `exact?` tactic. We check if it is using the base theorem in the proof.
-        proof_exact = check_proof_sub("exact?")
+        proof_exact = check_proof_sub(
+            server, formal_code, context_env, formal_2_start_line, "exact?", timeout_per_proof
+        )
         if proof_exact and base_thm_name in proof_exact:
             res[i] = True
             continue
@@ -99,9 +132,18 @@ def beq_plus(
     formalization_1: str, formalization_2: str, src_header: str, repl_config: LeanREPLConfig, timeout_per_proof: int
 ) -> bool:
     """
-    Check if two formalizations are equivalent using the BEq+ metric (https://arxiv.org/abs/2406.07222).
-    """
+    Checks equivalence of two formalizations using the BEq+ metric.
 
+    Args:
+        formalization_1: First Lean formalization as a string.
+        formalization_2: Second Lean formalization as a string.
+        src_header: Lean source header.
+        repl_config: Configuration for the Lean REPL.
+        timeout_per_proof: Timeout for each proof check in seconds.
+
+    Returns:
+        True if both directions of the equivalence hold; False otherwise.
+    """
     server = AutoLeanServer(config=repl_config)
     context_env = server.run_code(src_header, add_to_session_cache=True)["env"]
 
@@ -127,48 +169,29 @@ def beq_plus(
             formal_2_start_line = formal_1_code.count("\n") + 1
             formal_2_code = f"{clean_last_theorem_string(reform_thm, reformulated_thm_name, add_sorry=False)} by"
         except ValueError:
-            # we cannot change one of the theorems name, probably because it is invalid, so we skip
             continue
 
-        def check_proof_sub(proof: str, formal_code: str = formal_1_code + formal_2_code) -> str | None:
-            prepended_proof = "\nintros\nsymm_saturate\n"
-            try:
-                lean_output = server.run_code(
-                    formal_code + indent_code(prepended_proof + proof, 2),
-                    env=context_env,
-                    timeout=timeout_per_proof,
-                )
-
-                if proof == "sorry":
-                    # sorry is used on purpose to check if the formalization is well-typed
-                    if is_valid_lean(lean_output, start_line=formal_2_start_line):
-                        return proof
-                    return None
-
-                if is_valid_lean(lean_output, start_line=formal_2_start_line, allow_sorry=False):
-                    if proof == "exact?":
-                        return extract_exact_proof(lean_output, proof_start_line=formal_2_start_line)
-                    return proof
-            except TimeoutError:
-                pass
-            except (ConnectionAbortedError, json.JSONDecodeError) as e:
-                console.log(f"Error during proof checking: {e}")
-                pass
-
-            return None
-
-        # to avoid losing time, we first check if the formalizations are well-typed
-        if check_proof_sub("sorry") is None:
+        formal_code = formal_1_code + formal_2_code
+        if check_proof_sub(server, formal_code, context_env, formal_2_start_line, "sorry", timeout_per_proof) is None:
             continue
 
-        # 1. Use `exact?` tactic. We check if it is using the base theorem in the proof.
-        proof_exact = check_proof_sub("exact?")
+        # 1. Use BEqL
+        proof_exact = check_proof_sub(
+            server, formal_code, context_env, formal_2_start_line, "exact?", timeout_per_proof
+        )
         if proof_exact and base_thm_name in proof_exact:
             res[i] = True
             continue
 
         # 2. try to apply the base theorem directly
-        proof_apply = check_proof_sub(f"apply {base_thm_name}\n" + proof_all_apply)
+        proof_apply = check_proof_sub(
+            server,
+            formal_code,
+            context_env,
+            formal_2_start_line,
+            f"apply {base_thm_name}\n" + proof_all_apply,
+            timeout_per_proof,
+        )
         if proof_apply:
             res[i] = True
             continue
@@ -187,7 +210,6 @@ def beq_plus(
             pass
         except (ConnectionAbortedError, json.JSONDecodeError) as e:
             console.log(f"Error during proof checking: {e}")
-            pass
 
         if not provable_without_have:
             idx_conclusion = split_conclusion(formal_1_code)
@@ -199,7 +221,14 @@ def beq_plus(
                     + indent_code(f"apply_rules [{base_thm_name}]\n" + proof_all_apply, 2)
                     + "\n"
                 )
-                proof_have = check_proof_sub(have_stmt_proof + proof_all_have)
+                proof_have = check_proof_sub(
+                    server,
+                    formal_code,
+                    context_env,
+                    formal_2_start_line,
+                    have_stmt_proof + proof_all_have,
+                    timeout_per_proof,
+                )
                 if proof_have:
                     res[i] = True
                     continue
@@ -207,7 +236,12 @@ def beq_plus(
         # 4. try to apply the base theorem with some tolerance on the differences in the conclusion
         for max_step in range(0, 5):
             proof_convert = check_proof_sub(
-                f"convert (config := .unfoldSameFun) {base_thm_name} using {max_step}\n" + proof_all_apply
+                server,
+                formal_code,
+                context_env,
+                formal_2_start_line,
+                f"convert (config := .unfoldSameFun) {base_thm_name} using {max_step}\n" + proof_all_apply,
+                timeout_per_proof,
             )
             if proof_convert:
                 res[i] = True
@@ -309,7 +343,8 @@ if __name__ == "__main__":
     # metric = beql
     metric = beq_plus
 
-    # all statements are equivalent, but some of these examples showcase failure cases of the BEq+ metric
-    # examples_limitations(metric)
+    examples_limitations(metric)
+    # proofnetverif(metric)
 
-    proofnetverif(metric)
+    # To run the metrics faster on a dataset, we recommend using a parallelized version similar to the one in `type_check.py`
+    # Be careful with memory usage, as it can quickly become a bottleneck

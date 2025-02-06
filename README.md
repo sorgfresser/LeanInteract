@@ -49,7 +49,7 @@ pip install lean-interact
 In the `examples` directory, you will find various scripts demonstrating how to use LeanInteract. We recommend [uv](https://github.com/astral-sh/uv) to run these scripts using `uv run <script>`.
 
 - `type_check.py`: type check formalizations from the [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) benchmark.
-- `beq_plus.py`: run [BEq+](https://arxiv.org/abs/2406.07222) metric on the ProofNetVerif benchmark.
+- `beq_plus.py`: run [BEq+](https://arxiv.org/abs/2406.07222) metric on the ProofNetVerif benchmark (from [Improving Autoformalization using Type Checking](https://arxiv.org/abs/2406.07222))
 
 Soon to be added:
 
@@ -237,3 +237,19 @@ Two versions of Lean servers are available:
 ### Custom Lean REPL
 
 To use a forked Lean REPL project, specify the git repository using the `repl_git` parameter in the `LeanREPLConfig`. Your fork should have a similar format to <https://github.com/augustepoiroux/repl>. For assistance, feel free to contact [us](mailto:auguste.poiroux@epfl.ch).
+
+## Citation
+
+[Improving Autoformalization using Type Checking](https://arxiv.org/abs/2406.07222)
+
+```bibtex
+@misc{poiroux2024improvingautoformalizationusingtype,
+    title={Improving Autoformalization using Type Checking}, 
+    author={Auguste Poiroux and Gail Weiss and Viktor Kunčak and Antoine Bosselut},
+    year={2024},
+    eprint={2406.07222},
+    archivePrefix={arXiv},
+    primaryClass={cs.CL},
+    url={https://arxiv.org/abs/2406.07222}, 
+}
+```
