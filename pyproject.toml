@@ -1,6 +1,6 @@
 [project]
 name = "lean-interact"
-version = "0.1.0"
+version = "0.2.0"
 description = "LeanInteract is a Python package that allows you to interact with the Lean theorem prover."
 keywords = ["Lean", "theorem proving", "autoformalization", "REPL"]
 license = { file = "LICENSE" }
@@ -8,7 +8,7 @@ readme = "README.md"
 authors = [{ name = "Auguste Poiroux", email = "auguste.poiroux@epfl.ch" }]
 requires-python = ">=3.10"
 dependencies = [
-    "packaging>=24.2",
+    "gitpython>=3.1.44",
     "pexpect>=4.9.0",
     "psutil>=6.1.0",
     "requests>=2.32.3",
@@ -23,3 +23,7 @@ build-backend = "hatchling.build"
 dev = [
     "ipykernel>=6.29.5"
 ]
+
+[project.scripts]
+install-lean     = "lean_interact.utils:install_lean"
+clear-lean-cache = "lean_interact.utils:clear_cache"

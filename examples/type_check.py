@@ -11,23 +11,17 @@ This module provides functions to type-check Lean formalizations
 using sequential, parallel, and optimized batch methods.
 """
 
-import concurrent.futures
 import json
-import os
-import sys
 from typing import Any
 
 from datasets import load_dataset
+from rich.console import Console
 from tqdm import tqdm
 
 from lean_interact import AutoLeanServer, LeanREPLConfig
+from lean_interact.utils import is_valid_lean
 
-current_directory = os.path.dirname(os.path.abspath(__file__))
-if current_directory not in sys.path:
-    sys.path.insert(0, current_directory)
-
-from utils import console, is_valid_lean
-
+console = Console()
 DEFAULT_TIMEOUT = 60
 
 
@@ -51,41 +45,13 @@ def type_check_sequential(dataset: list[dict[str, Any]], repl_config: LeanREPLCo
             server_output = server.run_code(src_header + "\n" + formalization + " sorry", timeout=DEFAULT_TIMEOUT)
             successes[i] = is_valid_lean(server_output)
         except (TimeoutError, ConnectionAbortedError, json.JSONDecodeError) as e:
-            console.log(f"Error while type checking row {i}: {e}")
+            console.log(f"Error while type checking entry {i}: {e}")
     return successes
 
 
-def type_check_parallel(dataset: list[dict[str, Any]], repl_config: LeanREPLConfig) -> list[bool]:
+def type_check_sequential_optimized(dataset: list[dict[str, Any]], repl_config: LeanREPLConfig) -> list[bool]:
     """
-    Type-checks each formalization in parallel.
-
-    Args:
-        dataset: A list of dictionaries with keys 'lean4_src_header' and 'lean4_formalization'.
-        repl_config: Configuration for the Lean REPL.
-
-    Returns:
-        A list of booleans indicating if each formalization is valid.
-    """
-
-    def process_row(row: dict[str, Any]) -> bool:
-        server = AutoLeanServer(repl_config)
-        src_header = row["lean4_src_header"]
-        formalization = row["lean4_formalization"]
-        try:
-            server_output = server.run_code(src_header + "\n" + formalization + " sorry", timeout=DEFAULT_TIMEOUT)
-            return is_valid_lean(server_output)
-        except (TimeoutError, ConnectionAbortedError, json.JSONDecodeError) as e:
-            console.log(f"Error while type checking: {e}")
-            return False
-
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        results = list(tqdm(executor.map(process_row, dataset), total=len(dataset)))
-    return results
-
-
-def type_check_parallel_optimized(dataset: list[dict[str, Any]], repl_config: LeanREPLConfig) -> list[bool]:
-    """
-    Optimized parallel type-checking by batching formalizations with a common source header.
+    Optimized type-checking by batching formalizations with a common context.
 
     Args:
         dataset: A list of dictionaries with keys 'lean4_src_header' and 'lean4_formalization'.
@@ -115,16 +81,11 @@ def type_check_parallel_optimized(dataset: list[dict[str, Any]], repl_config: Le
         return valid_indices
 
     res: list[bool] = [False for _ in dataset]
-    with concurrent.futures.ThreadPoolExecutor() as executor:
-        for group in list(
-            tqdm(
-                executor.map(lambda x: type_check_group(*x), formalizations_grouped.items()),
-                total=len(formalizations_grouped),
-            )
-        ):
-            for idx in group:
-                res[idx] = True
-
+    for idx, group in enumerate(tqdm(formalizations_grouped.items())):
+        src_header, group = group
+        valid_indices = type_check_group(src_header, group)
+        for idx in valid_indices:
+            res[idx] = True
     return res
 
 
@@ -132,10 +93,8 @@ if __name__ == "__main__":
     proofnetsharp = load_dataset("PAug/ProofNetSharp", split="valid")
     config = LeanREPLConfig(lean_version="v4.15.0", require="mathlib")
 
-    # Uncomment the desired method
-    successes = type_check_sequential(proofnetsharp, config)
-    # successes = type_check_parallel(proofnetsharp, config)
-    # successes = type_check_parallel_optimized(proofnetsharp, config)
+    # successes = type_check_sequential(proofnetsharp, config)
+    successes = type_check_sequential_optimized(proofnetsharp, config)
 
     assert len(successes) == len(proofnetsharp)
 
@@ -145,4 +104,4 @@ if __name__ == "__main__":
             if not success:
                 console.log(proofnetsharp[idx])
     else:
-        console.log("All formalizations are valid!")
+        console.log("All formalizations are well-typed!")

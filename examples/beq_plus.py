@@ -23,27 +23,35 @@ Citation:
 """
 
 import json
-import os
-import sys
 
 from datasets import load_dataset
+from rich.console import Console
 from rich.syntax import Syntax
 from tqdm import tqdm
 
 from lean_interact import AutoLeanServer, LeanREPLConfig
-
-current_directory = os.path.dirname(os.path.abspath(__file__))
-if current_directory not in sys.path:
-    sys.path.insert(0, current_directory)
-
-from utils import (
+from lean_interact.utils import (
     clean_last_theorem_string,
-    console,
-    extract_exact_proof,
     indent_code,
     is_valid_lean,
+    message_intersects_code,
     split_conclusion,
 )
+
+console = Console()
+
+
+def extract_exact_proof(
+    lean_output: dict, proof_start_line: int | None = None, proof_end_line: int | None = None
+) -> str | None:
+    # check only the messages intersecting the proof
+    for message in lean_output.get("messages", []):
+        if message_intersects_code(message, proof_start_line, proof_end_line):
+            if message["severity"] == "error":
+                return None
+            if message["severity"] == "info" and message["data"].startswith("Try this:"):
+                return message["data"].split("Try this:")[1].strip()
+    return None
 
 
 def check_proof_sub(
@@ -360,5 +368,5 @@ if __name__ == "__main__":
     examples_limitations(metric)
     # proofnetverif(metric)
 
-    # To run the metrics faster on a dataset, we recommend using a parallelized version similar to the one in `type_check.py`
+    # To run the metrics faster on a dataset, we recommend using a parallelized version.
     # Be careful with memory usage, as it can quickly become a bottleneck

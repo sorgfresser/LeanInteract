@@ -3,6 +3,7 @@ import unittest
 import unittest.mock
 from queue import Queue
 from threading import Thread
+from typing import cast
 
 import pexpect
 import psutil
@@ -10,9 +11,12 @@ import psutil
 from lean_interact.server import (
     DEFAULT_TIMEOUT,
     AutoLeanServer,
+    GitProject,
     LeanREPLConfig,
     LeanRequire,
     LeanServer,
+    LocalProject,
+    TempRequireProject,
     _SessionState,
 )
 
@@ -23,43 +27,68 @@ class TestLeanServer(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         # Pre-run configs for all available versions to get the cache
-        lean_versions = LeanREPLConfig().get_available_lean_versions()
+        lean_versions = LeanREPLConfig(verbose=True).get_available_lean_versions()
         for version in ["v4.7.0", "v4.14.0", lean_versions[-1]]:
-            LeanREPLConfig(lean_version=version)
+            LeanREPLConfig(lean_version=version, verbose=True)
 
         # prepare Mathlib for the last version
-        LeanREPLConfig(lean_version=lean_versions[-1], require="mathlib")
+        LeanREPLConfig(lean_version=lean_versions[-1], project=TempRequireProject("mathlib"), verbose=True)
 
     def test_init_with_lean_version(self):
-        lean_versions = LeanREPLConfig().get_available_lean_versions()
+        lean_versions = LeanREPLConfig(verbose=True).get_available_lean_versions()
         for version in ["v4.7.0", "v4.14.0", lean_versions[-1]]:
-            server = AutoLeanServer(config=LeanREPLConfig(lean_version=version))
+            server = AutoLeanServer(config=LeanREPLConfig(lean_version=version, verbose=True))
             self.assertEqual(server.lean_version, version)
+            self.assertDictEqual(
+                server.run_code("#eval Lean.versionString"),
+                {
+                    "messages": [
+                        {
+                            "severity": "info",
+                            "pos": {"line": 1, "column": 0},
+                            "endPos": {"line": 1, "column": 5},
+                            "data": f'"{version[1:]}"',
+                        }
+                    ],
+                    "env": 0,
+                },
+            )
 
     def test_init_with_require(self):
-        lean_versions = LeanREPLConfig().get_available_lean_versions()
+        lean_versions = LeanREPLConfig(verbose=True).get_available_lean_versions()
+        latest_version = lean_versions[-1]
         require = [
-            LeanRequire(
-                name="mathlib",
-                git="https://github.com/leanprover-community/mathlib4.git",
-                rev=lean_versions[-1],
-            )
+            LeanRequire(name="mathlib", git="https://github.com/leanprover-community/mathlib4.git", rev=latest_version)
         ]
-        server = AutoLeanServer(LeanREPLConfig(require="mathlib"))
-        self.assertEqual(server.config.require, require)
+        server = AutoLeanServer(LeanREPLConfig(project=TempRequireProject("mathlib"), verbose=True))
+        project = cast(TempRequireProject, server.config.project)
+        self.assertEqual(server.lean_version, latest_version)
+        self.assertEqual(project._normalize_require(latest_version), require)
 
-    def test_init_with_project_dir(self):
+    def test_init_with_project_dir_fail(self):
         project_dir = "/tmp/path/to/project"
         with self.assertRaises(FileNotFoundError):
-            AutoLeanServer(LeanREPLConfig(project_dir=project_dir, lean_version="v4.7.0"))
+            AutoLeanServer(LeanREPLConfig(project=LocalProject(project_dir), lean_version="v4.7.0", verbose=True))
+
+    def test_init_with_project_dir(self):
+        base_config = LeanREPLConfig(project=TempRequireProject("mathlib"), verbose=True)
+        new_config = LeanREPLConfig(project=LocalProject(base_config._working_dir), verbose=True)
+        server = AutoLeanServer(new_config)
+        server.run_code("#eval Lean.versionString")
+
+    def test_init_with_git_project(self):
+        git_url = "https://github.com/yangky11/lean4-example"
+        config = LeanREPLConfig(project=GitProject(git_url), verbose=True)
+        server = AutoLeanServer(config=config)
+        server.run_code("#eval Lean.versionString")
 
     def test_run_code_simple(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         result = server.run_code("def x := 42")
         self.assertDictEqual(result, {"env": 0})
 
     def test_run_code_with_env(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         result1 = server.run_code("def x := 1", add_to_session_cache=True)
         self.assertDictEqual(result1, {"env": -1})
         env_id = result1.get("env")
@@ -67,7 +96,7 @@ class TestLeanServer(unittest.TestCase):
         self.assertDictEqual(result2, {"env": 1})
 
     def test_run_tactic(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         result = server.run_code("theorem zero_eq_zero : 0 = 0 := sorry", add_to_session_cache=True)
         self.assertDictEqual(
             result,
@@ -95,37 +124,37 @@ class TestLeanServer(unittest.TestCase):
         self.assertDictEqual(tactic_result, {"proofState": 1, "goals": []})
 
     def test_run_file_nonexistent(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         output = server.run_file("nonexistent_file.lean")
         self.assertDictEqual(
             output, {"message": "no such file or directory (error code: 2)\n  file: nonexistent_file.lean"}
         )
 
     def test_is_alive(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         self.assertTrue(server.is_alive())
         server.kill()
         self.assertFalse(server.is_alive())
 
     def test_restart(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         old_proc = server._proc
         server.restart()
         self.assertNotEqual(server._proc, old_proc)
         self.assertTrue(server.is_alive())
 
     def test_clear_session_cache(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         server.run_code("def x := 1", add_to_session_cache=True)
         server.clear_session_cache()
         self.assertEqual(len(server._restart_persistent_session_cache), 0)
 
     def test_init_with_invalid_rev(self):
         with self.assertRaises(Exception):
-            AutoLeanServer(config=LeanREPLConfig(lean_version="invalid_rev"))
+            AutoLeanServer(config=LeanREPLConfig(lean_version="invalid_rev", verbose=True))
 
     def test_extremely_long_command(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         result = server.run_code("def " + "a" * 10000 + " : 1 + 1 = 2 := sorry", add_to_session_cache=True)
         self.assertDictEqual(
             result,
@@ -153,7 +182,7 @@ class TestLeanServer(unittest.TestCase):
         self.assertDictEqual(result, {"proofState": 1, "goals": []})
 
     def test_lean_version(self):
-        server = AutoLeanServer(config=LeanREPLConfig(lean_version="v4.14.0"))
+        server = AutoLeanServer(config=LeanREPLConfig(lean_version="v4.14.0", verbose=True))
         result = server.run_code("#eval Lean.versionString")
         self.assertDictEqual(
             result,
@@ -171,7 +200,7 @@ class TestLeanServer(unittest.TestCase):
         )
 
     def test_mathlib(self):
-        server = AutoLeanServer(config=LeanREPLConfig(require="mathlib"))
+        server = AutoLeanServer(config=LeanREPLConfig(project=TempRequireProject("mathlib"), verbose=True))
         result = server.run_code("import Mathlib", add_to_session_cache=True)
         self.assertDictEqual(result, {"env": -1})
         result = server.run_code(
@@ -201,25 +230,11 @@ class TestLeanServer(unittest.TestCase):
                 "env": -2,
             },
         )
-        result = server.run_tactic("exact?", proof_state=0)
-        self.assertDictEqual(
-            result,
-            {
-                "proofState": 1,
-                "goals": [],
-                "messages": [
-                    {
-                        "data": "Try this: exact fun a => (fun {q} {x} => irrational_add_rat_iff.mpr) a",
-                        "endPos": {"column": 0, "line": 0},
-                        "pos": {"column": 0, "line": 0},
-                        "severity": "info",
-                    }
-                ],
-            },
-        )
+        result = server.run_tactic("apply irrational_add_rat_iff.mpr", proof_state=0)
+        self.assertDictEqual(result, {"proofState": 1, "goals": []})
 
     def test_restart_with_env(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         result = server.run_code("def x := 1", add_to_session_cache=True)
         env_id = result.get("env")
         self.assertEqual(env_id, -1)
@@ -229,7 +244,7 @@ class TestLeanServer(unittest.TestCase):
         self.assertEqual(list(server._restart_persistent_session_cache.keys()), [env_id])
 
     def test_process_request_memory_restart(self):
-        server = AutoLeanServer(config=LeanREPLConfig(), max_total_memory=0.01, max_restart_attempts=2)
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True), max_total_memory=0.01, max_restart_attempts=2)
         # Mock psutil.virtual_memory().percent to be high
         with unittest.mock.patch("psutil.virtual_memory") as mock_virtual_memory:
             mock_virtual_memory.return_value.percent = 99.0
@@ -240,7 +255,7 @@ class TestLeanServer(unittest.TestCase):
 
     @unittest.mock.patch("lean_interact.server.LeanServer._process_request")
     def test_process_request_with_negative_env_id(self, mock_super):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         # Prepare restart_persistent_session_cache
         server._restart_persistent_session_cache[-1] = _SessionState(-1, 10, "", False)
         request = {"env": -1}
@@ -252,7 +267,7 @@ class TestLeanServer(unittest.TestCase):
 
     @unittest.mock.patch("lean_interact.server.LeanServer._process_request")
     def test_process_request_with_negative_proof_state_id(self, mock_super):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         # Prepare restart_persistent_session_cache
         server._restart_persistent_session_cache[-2] = _SessionState(-2, 20, "", True)
         request = {"proofState": -2}
@@ -265,7 +280,7 @@ class TestLeanServer(unittest.TestCase):
     @unittest.mock.patch("lean_interact.server.LeanServer._process_request", return_value={})
     @unittest.mock.patch("lean_interact.server.psutil.virtual_memory")
     def test_process_request_server_restart(self, mock_virtual_memory, mock_process_request):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         server.kill()
         self.assertFalse(server.is_alive())
         mock_virtual_memory.return_value.percent = 0.0
@@ -277,7 +292,7 @@ class TestLeanServer(unittest.TestCase):
         # Simulate a timeout exception
         mock_process_request.side_effect = TimeoutError("Simulated timeout")
 
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         with self.assertRaises(TimeoutError):
             server._process_request({"cmd": "test"}, timeout=1)
 
@@ -315,7 +330,7 @@ class TestLeanServer(unittest.TestCase):
         self.assertFalse(server.is_alive())
 
     def test_autoleanserver_recovery_after_timeout(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
         # Mock the expect_exact method to raise a timeout exception
         def raise_timeout_error(*args, **kwargs):
@@ -330,7 +345,7 @@ class TestLeanServer(unittest.TestCase):
         self.assertDictEqual(result, {"env": 0})
 
     def test_leanserver_killed_after_timeout(self):
-        server = LeanServer(config=LeanREPLConfig())
+        server = LeanServer(config=LeanREPLConfig(verbose=True))
 
         # Mock the expect_exact method to raise a timeout exception
         def raise_timeout_error(*args, **kwargs):
@@ -346,7 +361,7 @@ class TestLeanServer(unittest.TestCase):
             server.run_code("def z := 3")
 
     def test_run_proof(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         result = server.run_code("theorem test_run_proof : (x : Nat) -> x = x := sorry", add_to_session_cache=True)
         self.assertEqual(result.get("env"), -1)
 
@@ -354,7 +369,7 @@ class TestLeanServer(unittest.TestCase):
         self.assertDictEqual(proof_result, {"proofState": 1, "goals": []})
 
     def test_run_proof_equivalence(self):
-        server = AutoLeanServer(config=LeanREPLConfig())
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         result = server.run_code("theorem test_run_proof_seq : (x : Nat) -> x = x := sorry", add_to_session_cache=True)
         self.assertEqual(result.get("env"), -1)
 
@@ -364,7 +379,7 @@ class TestLeanServer(unittest.TestCase):
 
     def test_bug_increasing_memory(self):
         mem_limit = 512
-        server = AutoLeanServer(config=LeanREPLConfig(max_memory=mem_limit))
+        server = AutoLeanServer(config=LeanREPLConfig(max_memory=mem_limit, verbose=True))
 
         # Get initial memory usage
         assert server._proc is not None

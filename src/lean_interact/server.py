@@ -11,12 +11,13 @@ from typing import Literal
 
 import pexpect
 import psutil
+from git import GitCommandError, Repo
 
 from lean_interact.utils import (
     DEFAULT_CACHE_DIR,
     DEFAULT_REPL_GIT_URL,
+    DEFAULT_REPL_VERSION,
     _limit_memory,
-    fetch_lean_versions,
     get_project_lean_version,
     logger,
 )
@@ -26,6 +27,8 @@ DEFAULT_TIMEOUT: int | None = None
 
 @dataclass(frozen=True)
 class LeanRequire:
+    """Lean project dependency"""
+
     name: str
     git: str
     rev: str | None = None
@@ -34,48 +37,193 @@ class LeanRequire:
         return hash((self.name, self.git, self.rev))
 
 
+@dataclass(frozen=True)
+class BaseProject:
+    """Base class for Lean projects"""
+
+    def _get_directory(self, cache_dir: str, lean_version: str | None = None) -> str:
+        """Get the project directory."""
+        raise NotImplementedError("Subclasses must implement this method")
+
+    def _instantiate(self, cache_dir: str, lean_version: str, verbose: bool = True) -> None:
+        """Instantiate the project."""
+        raise NotImplementedError("Subclasses must implement this method")
+
+
+@dataclass(frozen=True)
+class LocalProject(BaseProject):
+    """Use an existing local Lean project directory"""
+
+    directory: str
+
+    def _get_directory(self, cache_dir: str, lean_version: str | None = None) -> str:
+        """Get the project directory."""
+        return self.directory
+
+    def _instantiate(self, cache_dir: str, lean_version: str, verbose: bool = True):
+        """Instantiate the local project."""
+        stdout = None if verbose else subprocess.DEVNULL
+        stderr = None if verbose else subprocess.DEVNULL
+        # check that the project is buildable
+        subprocess.run(["lake", "build"], cwd=self.directory, check=True, stdout=stdout, stderr=stderr)
+
+
+@dataclass(frozen=True)
+class GitProject(BaseProject):
+    """Use an online git repository with a Lean project"""
+
+    url: str
+    rev: str | None = None
+
+    def _get_directory(self, cache_dir: str, lean_version: str | None = None) -> str:
+        repo_name = "/".join(self.url.split("/")[-2:]).replace(".git", "")
+        return os.path.join(cache_dir, "git_projects", repo_name, self.rev or "latest")
+
+    def _instantiate(self, cache_dir: str, lean_version: str, verbose: bool = True):
+        """Instantiate the git project."""
+        stdout = None if verbose else subprocess.DEVNULL
+        stderr = None if verbose else subprocess.DEVNULL
+
+        project_dir = self._get_directory(cache_dir)
+
+        # check if the git repository is already cloned
+        repo = Repo(project_dir) if os.path.exists(project_dir) else Repo.clone_from(self.url, project_dir)
+
+        if self.rev:
+            repo.git.checkout(self.rev)
+        else:
+            repo.git.pull()
+
+        repo.submodule_update(init=True, recursive=True)
+
+        # check that the project is buildable
+        subprocess.run(["lake", "build"], cwd=project_dir, check=True, stdout=stdout, stderr=stderr)
+
+
+@dataclass(frozen=True)
+class BaseTempProject(BaseProject):
+    """Base class for temporary Lean projects"""
+
+    def _get_directory(self, cache_dir: str, lean_version: str | None = None) -> str:
+        if lean_version is None:
+            raise ValueError("`lean_version` cannot be `None`")
+        # create a unique hash to allow for caching
+        hash_content = self._get_hash_content(lean_version)
+        tmp_project_dir = os.path.join(cache_dir, "tmp_projects", lean_version, hash_content)
+        os.makedirs(tmp_project_dir, exist_ok=True)
+        return tmp_project_dir
+
+    def _instantiate(self, cache_dir: str, lean_version: str, verbose: bool = True):
+        """Instantiate the temporary project."""
+        stdout = None if verbose else subprocess.DEVNULL
+        stderr = None if verbose else subprocess.DEVNULL
+
+        tmp_project_dir = self._get_directory(cache_dir, lean_version)
+
+        # check if the Lean project is already built
+        if not os.path.exists(os.path.join(tmp_project_dir, "lakefile.lean")):
+            # clean the content of the folder in case of a previous aborted build
+            shutil.rmtree(tmp_project_dir, ignore_errors=True)
+            os.makedirs(tmp_project_dir, exist_ok=True)
+
+            # initialize the Lean project
+            cmd_init = ["lake", f"+{lean_version}", "init", "dummy", "exe.lean"]
+            if lean_version.startswith("v4") and int(lean_version.split(".")[1]) <= 7:
+                cmd_init = ["lake", f"+{lean_version}", "init", "dummy", "exe"]
+            subprocess.run(cmd_init, cwd=tmp_project_dir, check=True, stdout=stdout, stderr=stderr)
+
+            # Create or modify the lakefile
+            self._modify_lakefile(tmp_project_dir, lean_version)
+
+            logger.info("Preparing Lean environment with dependencies (may take a while the first time)...")
+            subprocess.run(["lake", "update"], cwd=tmp_project_dir, check=True, stdout=stdout, stderr=stderr)
+            # in case mathlib is used as a dependency, we try to get the cache
+            subprocess.run(["lake", "exe", "cache", "get"], cwd=tmp_project_dir, stdout=stdout, stderr=stderr)
+            subprocess.run(["lake", "build"], cwd=tmp_project_dir, check=True, stdout=stdout, stderr=stderr)
+
+    def _get_hash_content(self, lean_version: str) -> str:
+        """Return a unique hash for the project content."""
+        raise NotImplementedError("Subclasses must implement this method")
+
+    def _modify_lakefile(self, project_dir: str, lean_version: str) -> None:
+        """Modify the lakefile according to project needs."""
+        raise NotImplementedError("Subclasses must implement this method")
+
+
+@dataclass(frozen=True)
+class TemporaryProject(BaseTempProject):
+    """Use custom lakefile content to create a temporary Lean project"""
+
+    content: str
+
+    def _get_hash_content(self, lean_version: str) -> str:
+        """Return a unique hash based on the content."""
+        return hashlib.sha256(self.content.encode()).hexdigest()
+
+    def _modify_lakefile(self, project_dir: str, lean_version: str) -> None:
+        """Write the content to the lakefile."""
+        with open(os.path.join(project_dir, "lakefile.lean"), "w") as f:
+            f.write(self.content)
+
+
+@dataclass(frozen=True)
+class TempRequireProject(BaseTempProject):
+    """
+    Set up a temporary project with dependencies.
+    As Mathlib is a common dependency, you can just set `require="mathlib"` and a compatible version of mathlib will be used.
+    This feature has been developed mostly to be able to run benchmarks using Mathlib as a dependency
+    (such as [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) or
+    [MiniF2F](https://github.com/yangky11/miniF2F-lean4)) without having to manually set up a Lean project.
+    """
+
+    require: Literal["mathlib"] | list[LeanRequire]
+
+    def _normalize_require(self, lean_version: str) -> list[LeanRequire]:
+        """Normalize the require field to always be a list."""
+        require = self.require
+        if require == "mathlib":
+            return [LeanRequire("mathlib", "https://github.com/leanprover-community/mathlib4.git", lean_version)]
+        assert isinstance(require, list)
+        return sorted(require, key=lambda x: x.name)
+
+    def _get_hash_content(self, lean_version: str) -> str:
+        """Return a unique hash based on dependencies."""
+        require = self._normalize_require(lean_version)
+        return hashlib.sha256(str(require).encode()).hexdigest()
+
+    def _modify_lakefile(self, project_dir: str, lean_version: str) -> None:
+        """Add requirements to the lakefile."""
+        require = self._normalize_require(lean_version)
+        with open(os.path.join(project_dir, "lakefile.lean"), "a") as f:
+            for req in require:
+                f.write(f'\n\nrequire {req.name} from git\n  "{req.git}"' + (f' @ "{req.rev}"' if req.rev else ""))
+
+
 class LeanREPLConfig:
     def __init__(
         self,
         lean_version: str | None = None,
-        project_dir: str | None = None,
-        require: Literal["mathlib"] | list[LeanRequire] | None = None,
-        repl_rev: str | None = None,
+        project: BaseProject | None = None,
+        repl_rev: str = DEFAULT_REPL_VERSION,
         repl_git: str = DEFAULT_REPL_GIT_URL,
         cache_dir: str = DEFAULT_CACHE_DIR,
         max_memory: int = 32 * 1024,
-        verbose: bool = True,
+        verbose: bool = False,
     ):
         """
         Configuration class used to specify the Lean environment we wish to use.
 
-        \u26a0 Multiprocessing: instantiate one `LeanServerConfig` in the main process before starting multiprocessing.
-        This will ensure that the REPL is correctly set up and will avoid potential concurrency issues.
-        You can then instantiate one `LeanServer` per process by passing the config as an argument to the constructor.
-
         Args:
-            lean_version:
-                Lean version you want to use (listed in the `versions` folder of the REPL git repo).
-                If set to `None`, the latest version compatible with the Lean REPL will be used.
-            project_dir:
-                A directory where a local Lean project is stored. We recommend not setting `lean_version` parameter when
-                using `project_dir` as it the lean version can be automatically inferred from the project.
-                This option cannot be used simultaneously with `require`.
-            require:
-                Define dependencies to use if no `project_dir` is specified. This will automatically set up a
-                temporary Lean project with the required dependencies. A list  of `LeanRequire` objects can be provided.
-                If `None`, no dependencies will be required.
-                As Mathlib is a common dependency, you can just set `require="mathlib"` and a compatible version of mathlib
-                will be used.
-                This feature has been developed mostly to be able to run benchmarks using Mathlib as a dependency
-                (such as [ProofNet](https://github.com/zhangir-azerbayev/ProofNet) or
-                [MiniF2F](https://github.com/yangky11/miniF2F-lean4)) without having to manually set up a Lean project.
+            lean_version: Lean version you want to use with the REPL.
+                If `None`, `LeanREPLConfig` will try to infer `lean_version` from `project`, otherwise
+                the latest version available in the Lean REPL repository will be used.
+            project: Source configuration for the Lean project. Use one of:
+                - LocalProject: A directory where a local Lean project is stored.
+                - GitProject: A git repository with a Lean project.
+                - TemporaryProject: A temporary Lean project with a custom lakefile that will be created.
+                - TempRequireProject: A temporary Lean project with dependencies that will be created.
             repl_rev:
-                The REPL version you want to use (valid versions correspond to tags, commit hashes, or branches in the repo).
-                While we recommend to always specify a version, if `repl_rev` is set to `None`, the latest tagged local version will be used.
-                If the REPL has not been cloned yet, the latest version will be cloned.
-                If you want to force the update of the local version, just set `repl_rev` to the latest version and it will pull the latest changes.
-                This default behavior aims to avoid unexpected updates to the local version and to minimize calls to the git repository.
+                The REPL version you want to use. It is not recommended to change this value unless you know what you are doing.
             repl_git:
                 The git repository of the Lean REPL. It is not recommended to change this value unless you know what you are doing.
             cache_dir:
@@ -84,205 +232,117 @@ class LeanREPLConfig:
             max_memory:
                 The maximum memory usage in MB for the Lean server. Setting this value too low may lead to timeouts.
                 Default is 32GB.
+            verbose:
+                Whether to print additional information during the setup process.
         """
         self.lean_version = lean_version
-        self.require = require
-        self.project_dir = project_dir
+        self.project = project
         self.repl_git = repl_git
         self.repl_rev = repl_rev
         self.cache_dir = cache_dir
         self.max_memory = max_memory
-        self.verbose = verbose
 
-        if self.require and self.project_dir:
-            raise ValueError("`require` and `project_dir` can not be set simultaneously.")
+        self.verbose = verbose
+        self._stdout = None if self.verbose else subprocess.DEVNULL
+        self._stderr = None if self.verbose else subprocess.DEVNULL
+
+        self.repo_name = "/".join(self.repl_git.split("/")[-2:]).replace(".git", "")
+        self.cache_clean_repl_dir = os.path.join(self.cache_dir, self.repo_name, "repl_clean_copy")
+
+        # check if lake is installed
+        if shutil.which("lake") is None:
+            raise RuntimeError(
+                "Lean 4 build system (`lake`) is not installed. You can try to run `install-lean` or find installation instructions here: https://leanprover-community.github.io/get_started.html"
+            )
 
         self._setup_repl()
-        self._setup_environment()
+
+        assert isinstance(self.lean_version, str)
+
+        if self.project is None:
+            self._working_dir = self._cache_repl_dir
+        else:
+            self.project._instantiate(
+                cache_dir=self.cache_dir,
+                lean_version=self.lean_version,
+                verbose=self.verbose,
+            )
+            self._working_dir = self.project._get_directory(cache_dir=self.cache_dir, lean_version=self.lean_version)
 
     def _setup_repl(self) -> None:
-        # check if the repl is cloned
-        repo_name = "/".join(self.repl_git.split("/")[-2:]).replace(".git", "")
-        cache_clean_repl_dir = os.path.join(self.cache_dir, repo_name, "repl_clean_copy")
-        stdout_setting = None if self.verbose else subprocess.DEVNULL
-        stderr_setting = None if self.verbose else subprocess.DEVNULL
-        if not os.path.exists(cache_clean_repl_dir):
-            os.makedirs(cache_clean_repl_dir, exist_ok=True)
-            subprocess.run(
-                ["git", "clone", self.repl_git, "."],
-                cwd=cache_clean_repl_dir,
-                check=True,
-                stdout=stdout_setting,
-                stderr=stderr_setting,
-            )
+        assert isinstance(self.repl_rev, str)
 
-        if self.repl_rev is None:
-            # get the latest tagged local revision
-            result = subprocess.run(
-                ["git", "describe", "--tags", "--abbrev=0"],
-                cwd=cache_clean_repl_dir,
-                capture_output=True,
-                text=True,
-                check=True,
-                stdout=stdout_setting,
-                stderr=stderr_setting,
-            )
-            self.repl_rev = result.stdout.strip()
+        # check if the repl is already cloned
+        if not os.path.exists(self.cache_clean_repl_dir):
+            os.makedirs(self.cache_clean_repl_dir, exist_ok=True)
+            Repo.clone_from(self.repl_git, self.cache_clean_repl_dir)
 
-        # check if the repl revision (tag, commit, or branch) is available
+        repo = Repo(self.cache_clean_repl_dir)
         try:
-            # checkouts the required revision
-            subprocess.run(
-                ["git", "checkout", self.repl_rev],
-                cwd=cache_clean_repl_dir,
-                check=True,
-                stdout=stdout_setting,
-                stderr=stderr_setting,
-            )
-        except subprocess.CalledProcessError:
-            # let's try to pull the latest changes
-            subprocess.run(
-                ["git", "pull"],
-                cwd=cache_clean_repl_dir,
-                check=True,
-                stdout=stdout_setting,
-                stderr=stderr_setting,
-            )
+            repo.git.checkout(self.repl_rev)
+        except GitCommandError:
+            repo.remote().pull()
             try:
-                # checkouts the required revision
-                subprocess.run(
-                    ["git", "checkout", self.repl_rev],
-                    cwd=cache_clean_repl_dir,
-                    check=True,
-                    stdout=stdout_setting,
-                    stderr=stderr_setting,
-                )
-            except subprocess.CalledProcessError:
-                raise ValueError(f"Revision `{self.repl_rev}` is not available in the Lean REPL repository.")
+                repo.git.checkout(self.repl_rev)
+            except GitCommandError:
+                raise ValueError(f"Lean REPL version `{self.repl_rev}` is not available.")
 
         # check if the Lean version is available in the repository
-        lean_versions = fetch_lean_versions(cache_clean_repl_dir)
-        if not lean_versions:
+        lean_versions_sha = self._get_available_lean_versions_sha()
+        lean_versions_sha_dict = dict(lean_versions_sha)
+        if not lean_versions_sha:
             raise ValueError("No Lean versions are available in the Lean REPL repository.")
         if self.lean_version is None:
-            if self.project_dir is not None:
-                inferred_ver = get_project_lean_version(self.project_dir)
-                self.lean_version = inferred_ver if inferred_ver else lean_versions[-1]
-            else:
-                self.lean_version = lean_versions[-1]
-        if self.lean_version not in lean_versions:
+            if (
+                self.project is None
+                or isinstance(self.project, TemporaryProject)
+                or isinstance(self.project, TempRequireProject)
+            ):
+                self.lean_version = lean_versions_sha[-1][0]
+            elif isinstance(self.project, LocalProject) or isinstance(self.project, GitProject):
+                # get the Lean version from the project
+                inferred_ver = get_project_lean_version(self.project._get_directory(self.cache_dir))
+                self.lean_version = inferred_ver if inferred_ver else lean_versions_sha[-1][0]
+        if self.lean_version not in lean_versions_sha_dict:
             raise ValueError(
                 f"Lean version `{self.lean_version}` is required but not available in the Lean REPL repository."
             )
 
         # check if the repl revision is already in the cache
-        self._cache_repl_dir = os.path.join(self.cache_dir, repo_name, f"repl_{self.repl_rev}_{self.lean_version}")
+        self._cache_repl_dir = os.path.join(self.cache_dir, self.repo_name, f"repl_{self.repl_rev}_{self.lean_version}")
         if not os.path.exists(self._cache_repl_dir):
             # copy the repository to the version directory and checkout the required revision
             os.makedirs(self._cache_repl_dir, exist_ok=True)
-            shutil.copytree(cache_clean_repl_dir, self._cache_repl_dir, dirs_exist_ok=True)
-            subprocess.run(
-                ["git", "checkout", self.repl_rev],
-                cwd=self._cache_repl_dir,
-                check=True,
-                stdout=stdout_setting,
-                stderr=stderr_setting,
-            )
-            # apply the diff for the required version
-            diff_file = os.path.join(self._cache_repl_dir, "versions", f"{self.lean_version}.diff")
-            # check if the file is not empty
-            if os.path.getsize(diff_file) > 0:
-                subprocess.run(["git", "apply", diff_file], cwd=self._cache_repl_dir, check=True)
+            shutil.copytree(self.cache_clean_repl_dir, self._cache_repl_dir, dirs_exist_ok=True)
+            cached_repo = Repo(self._cache_repl_dir)
+            cached_repo.git.checkout(lean_versions_sha_dict[self.lean_version])
+
+        # check that the lean version is correct
+        assert self.lean_version == get_project_lean_version(self._cache_repl_dir), (
+            f"An error occured while preparing the Lean REPL. The requested Lean version `{self.lean_version}` "
+            f"does not match the fetched Lean version in the repository `{get_project_lean_version(self._cache_repl_dir)}`."
+            f"Please open an issue on GitHub if you think this is a bug."
+        )
 
         # build the repl
         subprocess.run(
-            ["lake", "build"],
-            cwd=self._cache_repl_dir,
-            check=True,
-            stdout=stdout_setting,
-            stderr=stderr_setting,
+            ["lake", "build"], cwd=self._cache_repl_dir, check=True, stdout=self._stdout, stderr=self._stderr
         )
 
-    def _setup_environment(self) -> None:
-        assert isinstance(self.lean_version, str)
-
-        stdout_setting = None if self.verbose else subprocess.DEVNULL
-        stderr_setting = None if self.verbose else subprocess.DEVNULL
-
-        # require Lean libraries
-        if self.require:
-            if self.require == "mathlib":
-                self.require = [
-                    LeanRequire("mathlib", "https://github.com/leanprover-community/mathlib4.git", self.lean_version)
-                ]
-            assert isinstance(self.require, list)
-            self.require = sorted(self.require, key=lambda x: x.name)
-
-            # create a unique hash to allow for caching
-            require_hash = hashlib.sha256(str(self.require).encode()).hexdigest()
-            tmp_project_dir = os.path.join(self.cache_dir, "tmp_projects", self.lean_version, require_hash)
-            os.makedirs(tmp_project_dir, exist_ok=True)
-
-            # check if the Lean project is already built
-            if not os.path.exists(os.path.join(tmp_project_dir, "lakefile.lean")):
-                # clean the content of the folder in case of a previous failed build
-                shutil.rmtree(tmp_project_dir, ignore_errors=True)
-                os.makedirs(tmp_project_dir, exist_ok=True)
-
-                # initialize the Lean project
-                cmd_init = ["lake", f"+{self.lean_version}", "init", "dummy", "exe.lean"]
-                if self.lean_version.startswith("v4") and int(self.lean_version.split(".")[1]) <= 7:
-                    cmd_init = ["lake", f"+{self.lean_version}", "init", "dummy", "exe"]
-                subprocess.run(cmd_init, cwd=tmp_project_dir, check=True)
-
-                with open(os.path.join(tmp_project_dir, "lakefile.lean"), "a") as f:
-                    for req in self.require:
-                        f.write(
-                            f'\n\nrequire {req.name} from git\n  "{req.git}"' + (f' @ "{req.rev}"' if req.rev else "")
-                        )
-
-                logger.info("Preparing Lean environment with dependencies (may take a while the first time)...")
-                subprocess.run(
-                    ["lake", "update"],
-                    cwd=tmp_project_dir,
-                    check=True,
-                    stdout=stdout_setting,
-                    stderr=stderr_setting,
-                )
-                subprocess.run(
-                    ["lake", "exe", "cache", "get"],
-                    cwd=tmp_project_dir,
-                    stdout=stdout_setting,
-                    stderr=stderr_setting,
-                )
-                subprocess.run(
-                    ["lake", "build"],
-                    cwd=tmp_project_dir,
-                    check=True,
-                    stdout=stdout_setting,
-                    stderr=stderr_setting,
-                )
-
-            self._working_dir = tmp_project_dir
-
-        elif self.project_dir:
-            # check that the project is built
-            subprocess.run(
-                ["lake", "build"],
-                cwd=self.project_dir,
-                check=True,
-                stdout=stdout_setting,
-                stderr=stderr_setting,
-            )
-            self._working_dir = self.project_dir
-        else:
-            self._working_dir = self._cache_repl_dir
+    def _get_available_lean_versions_sha(self) -> list[tuple[str, str]]:
+        """
+        Get the available Lean versions for the selected REPL.
+        """
+        repo = Repo(self.cache_clean_repl_dir)
+        return [
+            (str(commit.message.strip()), commit.hexsha) for commit in repo.iter_commits(f"{self.repl_rev}...master")
+        ]
 
     def get_available_lean_versions(self) -> list[str]:
         """
         Get the available Lean versions for the selected REPL.
         """
-        return fetch_lean_versions(self._cache_repl_dir)
+        return [commit[0] for commit in self._get_available_lean_versions_sha()]
 
     def is_setup(self) -> bool:
         return hasattr(self, "_working_dir")

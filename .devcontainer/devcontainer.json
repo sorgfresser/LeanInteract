@@ -15,7 +15,7 @@
   // "forwardPorts": [],
 
   // Use 'postCreateCommand' to run commands after the container is created.
-  "postCreateCommand": "uv pip install -e . && uv run install-lean",
+  "postCreateCommand": "uv pip install -e . && uv sync --dev && uv run install-lean",
 
   // Configure tool-specific properties.
   // "customizations": {},
