@@ -66,7 +66,7 @@ class LeanServer:
         )
         # `stty -icanon` is required to handle arbitrary long inputs in the Lean REPL
         self._proc.sendline("stty -icanon")
-        self._proc.sendline(f"lake env {self.config._cache_repl_dir}/.lake/build/bin/repl")
+        self._proc.sendline(f"lake env {self.config._cache_repl_dir}/.lake/build/bin/repl || exit")
 
     def is_alive(self) -> bool:
         return hasattr(self, "_proc") and self._proc is not None and self._proc.isalive()
@@ -131,8 +131,9 @@ class LeanServer:
             self.kill()
             raise ConnectionAbortedError(
                 "The Lean server closed unexpectedly. Possible reasons (not exhaustive):\n"
+                "- An uncaught exception in the Lean REPL (for example, an unexistent file has been requested)\n"
                 "- Not enough memory and/or compute available\n"
-                "- Your cached Lean REPL is corrupted. In this case, clear the cache"
+                "- The cached Lean REPL is corrupted. In this case, clear the cache"
                 " using the `clear_cache` (`from pyleanrepl import clear_cache`) method."
             ) from e
 

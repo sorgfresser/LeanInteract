@@ -549,13 +549,11 @@ class TestLeanServer(unittest.TestCase):
         # Try to unpickle invalid data
         temp_pickle_file = tempfile.mkstemp(suffix=".olean")[1]
 
-        # TODO: Fix this in Lean REPL, it should crash instead of hanging
-
-        with self.assertRaises(TimeoutError):
-            server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle_file), timeout=5)
-
-        with self.assertRaises(TimeoutError):
-            server.run(UnpickleProofState(unpickle_proof_state_from=temp_pickle_file), timeout=5)
+        # Try to unpickle invalid data
+        with self.assertRaises(ConnectionAbortedError):
+            server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle_file))
+        with self.assertRaises(ConnectionAbortedError):
+            server.run(UnpickleProofState(unpickle_proof_state_from=temp_pickle_file))
 
         # delete the temp file
         os.remove(temp_pickle_file)
