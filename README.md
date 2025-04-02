@@ -4,13 +4,11 @@
 
 ## Key Features
 
-- **🔗 Interactivity**: Execute Lean code and files directly from Python, and iterate on environment states.
-- **🚀 Ease of Use**: LeanInteract abstracts the complexities of Lean setup and interaction, enabling quick experimentation.
-  - Automatically downloads and builds Lean REPL versions for you. Versions are cached for fast reuse.
-- **🔧 Compatibility**: Supports all Lean versions between `v4.7.0-rc1` and `v4.18.0-rc1`.
-  - Ensures compatibility with various Lean projects and machine learning benchmarks.
-- **📦 Temporary Projects**: Easily instantiate temporary Lean environments with dependencies.
-  - Useful for experimenting and interacting with benchmarks depending on [Mathlib](https://github.com/leanprover-community/mathlib4) like [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) and [MiniF2F](https://github.com/yangky11/miniF2F-lean4) without manually setting up a Lean project.
+- **🔗 Interactivity**: Execute Lean code and files directly from Python.
+- **🚀 Ease of Use**: LeanInteract abstracts the complexities of Lean setup and interaction.
+- **🔧 Compatibility**: Supports all Lean versions between `v4.7.0-rc1` and `v4.18.0`.
+- **📦 Temporary Projects**: Easily instantiate temporary Lean environments.
+  - Useful for experimenting with benchmarks depending on [Mathlib](https://github.com/leanprover-community/mathlib4) like [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) and [MiniF2F](https://github.com/yangky11/miniF2F-lean4).
 
 ## Installation and Setup
 
@@ -24,8 +22,7 @@ Requirements:
 
 - Python >= 3.10
 - git
-- [Lean 4](https://leanprover-community.github.io/get_started.html)
-  - Tip: the `install-lean` command can install Lean 4 for you after installing LeanInteract.
+- [Lean 4](https://leanprover-community.github.io/get_started.html) (or use the `install-lean` command from LeanInteract)
 
 > [!NOTE]
 > This tool is still experimental and has been primarily tested on Linux. Compatibility with macOS is not guaranteed. For Windows, use WSL.
@@ -33,41 +30,30 @@ Requirements:
 
 ## Script examples
 
-In the `examples` directory, you will find a few scripts demonstrating how to use LeanInteract. We recommend [uv](https://github.com/astral-sh/uv) to run these scripts (`uv run <script>.py`).
+In the `examples` directory, you will find a few scripts demonstrating how to use LeanInteract.
 
+- `proof_generation_and_autoformalization.py`: use [DeepSeek-Prover-V1.5](https://arxiv.org/abs/2408.08152), [Goedel-Prover](https://goedel-lm.github.io/), and other models on [MiniF2F](https://github.com/yangky11/miniF2F-lean4) and [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) benchmarks.
 - `beq_plus.py`: run the autoformalization [BEq+](https://arxiv.org/abs/2406.07222) metric on the [ProofNetVerif](https://huggingface.co/datasets/PAug/ProofNetVerif) benchmark.
-- `type_check.py`: optimize type checking of formal statements using environment states.
-
-Soon to be added:
-
-- `proof_generation_and_autoformalization.py`: use [DeepSeek-Prover-V1.5](https://arxiv.org/abs/2408.08152), [Goedel-Prover](https://goedel-lm.github.io/), and other models to prove theorems from the [MiniF2F](https://github.com/yangky11/miniF2F-lean4) and [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) benchmarks.
-- `statement_autoformalization_sampling.py`: an implementation of the sampling-based statement autoformalization method used in [Improving Autoformalization using Type Checking](https://arxiv.org/abs/2406.07222).
+- `type_check.py`: optimize type checking using environment states.
+- `statement_autoformalization_sampling.py`: sampling-based method used in [Improving Autoformalization using Type Checking](https://arxiv.org/abs/2406.07222).
 
 ## Usage
 
 ### Default Lean version (latest available)
 
 ```python
-from lean_interact import LeanREPLConfig, LeanServer
+from lean_interact import LeanREPLConfig, LeanServer, Command
 
 config = LeanREPLConfig(verbose=True) # download and build Lean REPL
 server = LeanServer(config) # start Lean REPL
-server.run_code("theorem ex (n : Nat) : n = 5 → n = 5 := sorry")
+server.run(Command(cmd="theorem ex (n : Nat) : n = 5 → n = 5 := id"))
 ```
 
 <details>
 <summary>Output</summary>
 
-```json
-{"sorries": [{"proofState": 0,
-   "pos": {"line": 1, "column": 40},
-   "goal": "n : Nat\n⊢ n = 5 → n = 5",
-   "endPos": {"line": 1, "column": 45}}],
- "messages": [{"severity": "warning",
-   "pos": {"line": 1, "column": 8},
-   "endPos": {"line": 1, "column": 10},
-   "data": "declaration uses 'sorry'"}],
- "env": 0}
+```python
+CommandResponse(env=0)
 ```
 
 </details>
@@ -75,14 +61,14 @@ server.run_code("theorem ex (n : Nat) : n = 5 → n = 5 := sorry")
 Iterate on the environment state:
 
 ```python
-server.run_code("theorem ex2 (x : Nat) : x = 5 → x = 5 := by\n  exact ex x", env=0)
+server.run(Command(cmd="example (x : Nat) : x = 5 → x = 5 := by exact ex x", env=0))
 ```
 
 <details>
 <summary>Output</summary>
 
-```json
-{"env": 1}
+```python
+CommandResponse(env=1)
 ```
 
 </details>
@@ -108,11 +94,13 @@ or
 config = LeanREPLConfig(project=GitProject("https://github.com/yangky11/lean4-example"))
 ```
 
-You can then use `run_code` and `run_file` as usual:
+You can then use `run` as usual:
 
 ```python
+from lean_interact import FileCommand
+
 server = LeanServer(config)
-server.run_file("file.lean")
+server.run(FileCommand(path="file.lean"))
 ```
 
 > [!IMPORTANT]
@@ -121,6 +109,8 @@ server.run_file("file.lean")
 ### Temporary project with dependencies
 
 ```python
+from lean_interact import TempRequireProject
+
 config = LeanREPLConfig(lean_version="v4.7.0", project=TempRequireProject([LeanRequire(
     name="mathlib",
     git="https://github.com/leanprover-community/mathlib4.git",
@@ -138,23 +128,32 @@ You can then use Mathlib as follows:
 
 ```python
 server = LeanServer(config)
-server.run_code("""import Mathlib
-theorem ex_mathlib (x : ℝ) (y : ℚ) :\n  ( Irrational x ) -> Irrational ( x + y ) := sorry""")
+server.run(Command(cmd="""import Mathlib
+theorem ex_mathlib (x : ℝ) (y : ℚ) :
+  ( Irrational x ) -> Irrational ( x + y ) := sorry"""))
 ```
 
 <details>
 <summary>Output</summary>
 
-```json
-{"sorries": [{"proofState": 0,
-   "pos": {"line": 4, "column": 26},
-   "goal": "x : ℝ\ny : ℚ\n⊢ Irrational (x + ↑y)",
-   "endPos": {"line": 4, "column": 31}}],
- "messages": [{"severity": "warning",
-   "pos": {"line": 3, "column": 8},
-   "endPos": {"line": 3, "column": 18},
-   "data": "declaration uses 'sorry'"}],
- "env": 0}
+```python
+CommandResponse(
+  messages=[
+    Message(
+      start_pos=Pos(line=2, column=8),
+      end_pos=Pos(line=2, column=18),
+      data="declaration uses 'sorry'",
+      severity='warning'
+  )],
+  sorries=[
+    Sorry(
+      start_pos=Pos(line=3, column=46),
+      end_pos=Pos(line=3, column=51),
+      goal='x : ℝ\ny : ℚ\n⊢ Irrational x → Irrational (x + ↑y)',
+      proof_state=0
+  )],
+  env=0
+)
 ```
 
 </details>
@@ -169,7 +168,9 @@ theorem ex_mathlib (x : ℝ) (y : ℚ) :\n  ( Irrational x ) -> Irrational ( x +
 For more control over the temporary project, you can use `TemporaryProject` to specify the content of the lakefile.
 
 ```python
-config = LeanREPLConfig(lean_version="v4.18.0-rc1", project=TemporaryProject("""
+from lean_interact import TemporaryProject
+
+config = LeanREPLConfig(lean_version="v4.18.0", project=TemporaryProject("""
 import Lake
 open Lake DSL
 
@@ -181,29 +182,37 @@ lean_exe "dummy" where
   root := `Main
 
 require mathlib from git
-  "https://github.com/leanprover-community/mathlib4.git" @ "v4.18.0-rc1"
+  "https://github.com/leanprover-community/mathlib4.git" @ "v4.18.0"
 """))
 ```
 
-### Tactic and proof modes (experimental)
+### Tactic mode (experimental)
 
 ```python
-server.run_code("theorem ex (n : Nat) : n = 5 → n = 5 := sorry")
+server.run(Command(cmd="theorem ex (n : Nat) : n = 5 → n = 5 := sorry"))
 ```
 
 <details>
 <summary>Output</summary>
 
-```json
-{"sorries": [{"proofState": 0,
-   "pos": {"line": 1, "column": 40},
-   "goal": "n : Nat\n⊢ n = 5 → n = 5",
-   "endPos": {"line": 1, "column": 45}}],
- "messages": [{"severity": "warning",
-   "pos": {"line": 1, "column": 8},
-   "endPos": {"line": 1, "column": 10},
-   "data": "declaration uses 'sorry'"}],
- "env": 0}
+```python
+CommandResponse(
+  messages=[
+    Message(
+      start_pos=Pos(line=1, column=8),
+      end_pos=Pos(line=1, column=10),
+      data="declaration uses 'sorry'",
+      severity='warning'
+  )],
+  sorries=[
+    Sorry(
+      start_pos=Pos(line=1, column=40),
+      end_pos=Pos(line=1, column=45),
+      goal='n : Nat\n⊢ n = 5 → n = 5',
+      proof_state=0
+  )],
+  env=0
+)
 ```
 
 </details>
@@ -211,50 +220,52 @@ server.run_code("theorem ex (n : Nat) : n = 5 → n = 5 := sorry")
 You can then iterate on the proof state by executing tactics:
 
 ```python
-server.run_tactic("intro h", proof_state=0)
+server.run(ProofStep(tactic="intro h", proof_state=0))
 ```
 
 <details>
 <summary>Output</summary>
 
-```json
-{"proofState": 1, "goals": ["n : Nat\nh : n = 5\n⊢ n = 5"]}
+```python
+ProofStepResponse(goals=['n : Nat\nh : n = 5\n⊢ n = 5'], proof_state=1)
 ```
 
 </details>
 
 ```python
-server.run_tactic("exact h", proof_state=1)
+server.run(ProofStep(tactic="exact h", proof_state=1))
 ```
 
 <details>
 <summary>Output</summary>
 
-```json
-{"proofState": 2, "goals": []}
+```python
+ProofStepResponse(goals=[], proof_state=2)
 ```
 
 </details>
 
-or by running the entire/partial proofs:
+or by directly running the entire proof:
 
 ```python
-server.run_proof("intro h\nexact h", proof_state=0)
+server.run(ProofStep(tactic="(\nintro h\nexact h)", proof_state=0))
 ```
 
 <details>
 <summary>Output</summary>
 
-```json
-{"proofState": 3, "goals": []}
+```python
+ProofStepResponse(goals=[], proof_state=3)
 ```
 
 </details>
 
 ## Helper Commands
 
-- `install_lean`: Installs Lean 4 version manager `elan`.
-- `clear_lean_cache`: Removes all Lean REPL versions and temporary projects in the package cache. This can help resolve some issues. If it does, please open an issue.
+The following commands are installed with LeanInteract:
+
+- `install-lean`: Installs Lean 4 version manager `elan`.
+- `clear-lean-cache`: Removes all Lean REPL versions and temporary projects in the package cache. This can help resolve some issues. If it does, please open an issue.
 
 ## Advanced options
 
@@ -262,8 +273,8 @@ server.run_proof("intro h\nexact h", proof_state=0)
 
 Two versions of Lean servers are available:
 
-- **`LeanServer`**: A wrapper around Lean REPL. Interact with it using `run_code`, `run_file`, and `run_tactic` methods.
-- **`AutoLeanServer`**: An experimental subclass of `LeanServer` automatically recovering from crashes and timeouts. It also monitors memory usage to limit *out of memory* crashes in multiprocessing contexts. Use the `add_to_session_cache` attribute available in various methods to prevent selected environment/proof states to be cleared.
+- **`LeanServer`**: A wrapper around Lean REPL. Interact with it using the `run` method.
+- **`AutoLeanServer`**: An experimental subclass of `LeanServer` automatically recovering from some crashes and timeouts. It also monitors memory usage to limit *out of memory* issues in multiprocessing contexts. Use the `add_to_session_cache` attribute available in the `run` method to prevent selected environment/proof states to be cleared.
 
 > [!TIP]
 >

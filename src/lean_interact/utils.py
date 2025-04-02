@@ -6,6 +6,7 @@ import resource
 import shutil
 import subprocess
 
+import psutil
 from rich.logging import RichHandler
 
 logger = logging.getLogger("document_autoformalization")
@@ -20,13 +21,26 @@ logger.addHandler(handler)
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CACHE_DIR = os.path.join(ROOT_DIR, "cache")
 DEFAULT_REPL_GIT_URL = "https://github.com/augustepoiroux/repl"
-DEFAULT_REPL_VERSION = "v1.0.3"
+DEFAULT_REPL_VERSION = "v1.0.4"
 
 os.makedirs(DEFAULT_CACHE_DIR, exist_ok=True)
 
 
-def _limit_memory(max_mb: int):
+def get_total_memory_usage(proc: psutil.Process):
+    """Get total resident memory usage of a process and its children (in bytes)."""
+    try:
+        total = proc.memory_info().rss
+        for child in proc.children(recursive=True):
+            total += child.memory_info().rss
+        return total
+    except psutil.NoSuchProcess:
+        return 0
+
+
+def _limit_memory(max_mb: int | None):
     """Limit the memory usage of the current process."""
+    if max_mb is None:
+        return
     try:
         resource.setrlimit(resource.RLIMIT_AS, (max_mb * 1024 * 1024, max_mb * 1024 * 1024))
     except ValueError:
@@ -97,6 +111,17 @@ def indent_code(code: str, nb_spaces: int = 2) -> str:
     return "\n".join(" " * nb_spaces + line for line in code.split("\n"))
 
 
+def compress_newlines(lean_code: str):
+    # compress lines containing only whitespaces
+    lean_code = re.sub(r"^\s+$", "", lean_code, flags=re.MULTILINE)
+    # Compress multiple consecutive newlines
+    lean_code = re.sub(r"\n\n+", "\n\n", lean_code)
+    lean_code = lean_code.lstrip()
+    if lean_code.endswith("\n"):
+        lean_code = lean_code.rstrip() + "\n"
+    return lean_code
+
+
 def lean_comments_ranges(
     lean_code: str, multiline_comment_suffix: str = "", remove_single_line_comments: bool = True
 ) -> list[tuple[int, int]]:
@@ -130,7 +155,7 @@ def lean_comments_ranges(
 
     # merge potential overlapping ranges
     comment_ranges = sorted(multiline_comment_ranges, key=lambda x: x[0])
-    merged_comment_ranges = []
+    merged_comment_ranges: list[tuple[int, int]] = []
     for start, end in comment_ranges:
         if merged_comment_ranges and start <= merged_comment_ranges[-1][1]:
             merged_comment_ranges[-1] = (merged_comment_ranges[-1][0], max(merged_comment_ranges[-1][1], end))
@@ -259,31 +284,3 @@ def clean_last_theorem_string(lean_code: str, new_theorem_name: str = "dummy", a
         return lean_code[:idx_last_theorem] + clean_thm
 
     raise ValueError(f"Theorem extraction failed for the following Lean code:\n{lean_code}")
-
-
-def message_intersects_code(message, start_line, end_line):
-    res = True
-    if start_line is not None:
-        if message["endPos"]:
-            res = res and message["endPos"]["line"] >= start_line
-    if end_line is not None:
-        if message["startPos"]:
-            res = res and message["startPos"]["line"] <= end_line
-    return res
-
-
-def is_valid_lean(
-    lean_repl_output: dict, start_line: int | None = None, end_line: int | None = None, allow_sorry: bool = True
-):
-    # check only the messages intersecting the code
-    errors = [
-        message
-        for message in lean_repl_output.get("messages", [])
-        if message_intersects_code(message, start_line, end_line) and message["severity"] == "error"
-    ]
-    sorries = [
-        message
-        for message in lean_repl_output.get("sorries", [])
-        if message_intersects_code(message, start_line, end_line)
-    ]
-    return not errors and (allow_sorry or not sorries) and "env" in lean_repl_output

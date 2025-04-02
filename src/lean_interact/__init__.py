@@ -1,13 +1,21 @@
-from lean_interact.server import (
-    AutoLeanServer,
+from lean_interact.config import (
     GitProject,
     LeanREPLConfig,
     LeanRequire,
-    LeanServer,
     LocalProject,
     TemporaryProject,
     TempRequireProject,
 )
+from lean_interact.interface import (
+    Command,
+    FileCommand,
+    PickleEnvironment,
+    PickleProofState,
+    ProofStep,
+    UnpickleEnvironment,
+    UnpickleProofState,
+)
+from lean_interact.server import AutoLeanServer, LeanServer
 
 __all__ = [
     "LeanREPLConfig",
@@ -18,4 +26,10 @@ __all__ = [
     "LocalProject",
     "TemporaryProject",
     "TempRequireProject",
+    "Command",
+    "FileCommand",
+    "PickleEnvironment",
+    "PickleProofState",
+    "UnpickleEnvironment",
+    "UnpickleProofState",
 ]

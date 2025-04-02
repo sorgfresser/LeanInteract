@@ -1,12 +1,14 @@
 # /// script
-# requires-python = ">=3.12"
+# requires-python = ">=3.10"
 # dependencies = [
 #     "datasets",
-#     "lean-interact",
+#     "lean-interact @ file:///home/poiroux/Documents/EPFL/PhD/Lean/LeanInteract",
 #     "rich",
+#     "tqdm",
+#     "scikit-learn",
 # ]
 # ///
-"""Module for verifying equivalence of Lean formalizations using BEqL and BEq+ metrics
+"""Module for verifying equivalence of Lean formalizations using BEqL and BEq+ metrics.
 
 Citation:
 ```bibtex
@@ -27,30 +29,37 @@ import json
 from datasets import load_dataset
 from rich.console import Console
 from rich.syntax import Syntax
+from rich.table import Table
+from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score
 from tqdm import tqdm
 
-from lean_interact import AutoLeanServer, LeanREPLConfig
+from lean_interact import AutoLeanServer, Command, LeanREPLConfig
+from lean_interact.config import TempRequireProject
+from lean_interact.interface import (
+    CommandResponse,
+    LeanError,
+    Pos,
+    message_intersects_code,
+)
 from lean_interact.utils import (
     clean_last_theorem_string,
     indent_code,
-    is_valid_lean,
-    message_intersects_code,
     split_conclusion,
 )
 
 console = Console()
+DEFAULT_TIMEOUT = 60
 
 
-def extract_exact_proof(
-    lean_output: dict, proof_start_line: int | None = None, proof_end_line: int | None = None
-) -> str | None:
+def extract_exact_proof(lean_output: CommandResponse, proof_start_line: int | None = None) -> str | None:
     # check only the messages intersecting the proof
-    for message in lean_output.get("messages", []):
-        if message_intersects_code(message, proof_start_line, proof_end_line):
-            if message["severity"] == "error":
+    start = Pos(line=proof_start_line, column=0) if proof_start_line else None
+    for message in lean_output.messages:
+        if message_intersects_code(message, start, None):
+            if message.severity == "error":
                 return None
-            if message["severity"] == "info" and message["data"].startswith("Try this:"):
-                return message["data"].split("Try this:")[1].strip()
+            if message.severity == "info" and message.data.startswith("Try this:"):
+                return message.data.split("Try this:")[1].strip()
     return None
 
 
@@ -80,17 +89,21 @@ def check_proof_sub(
     """
     prepended = "\nintros\nsymm_saturate\n"
     try:
-        lean_output = server.run_code(
-            formal_code + indent_code(prepended + proof, indent_level),
-            env=context_env,
+        lean_output = server.run(
+            Command(
+                cmd=formal_code + indent_code(prepended + proof, indent_level),
+                env=context_env,
+            ),
             timeout=timeout,
         )
+        if isinstance(lean_output, LeanError):
+            return None
         if proof == "sorry":
-            if is_valid_lean(lean_output, start_line=formal_2_start_line):
+            if lean_output.lean_code_is_valid(start_pos=Pos(line=formal_2_start_line, column=0)):
                 return proof
             return None
 
-        if is_valid_lean(lean_output, start_line=formal_2_start_line, allow_sorry=False):
+        if lean_output.lean_code_is_valid(start_pos=Pos(line=formal_2_start_line, column=0), allow_sorry=False):
             if proof == "exact?":
                 return extract_exact_proof(lean_output, proof_start_line=formal_2_start_line)
             return proof
@@ -102,10 +115,15 @@ def check_proof_sub(
 
 
 def beql(
-    formalization_1: str, formalization_2: str, src_header: str, repl_config: LeanREPLConfig, timeout_per_proof: int
+    formalization_1: str,
+    formalization_2: str,
+    src_header: str,
+    repl_config: LeanREPLConfig,
+    timeout_per_proof: int,
+    verbose: bool = False,
 ) -> bool:
     """
-    Checks equivalence of two formalizations using the BEqL metric.
+    Checks equivalence of two formalizations using the BEq_L metric.
 
     Args:
         formalization_1: First Lean formalization as a string.
@@ -118,7 +136,9 @@ def beql(
         True if both directions of the equivalence hold; False otherwise.
     """
     server = AutoLeanServer(config=repl_config)
-    context_env = server.run_code(src_header, add_to_session_cache=True)["env"]
+    context_run = server.run(Command(cmd=src_header), add_to_session_cache=True)
+    assert isinstance(context_run, CommandResponse)
+    context_env = context_run.env
 
     base_thm_name = "base_theorem"
     reformulated_thm_name = "reformulated_theorem"
@@ -127,17 +147,22 @@ def beql(
     for i, (base_thm, reform_thm) in enumerate(
         [(formalization_1, formalization_2), (formalization_2, formalization_1)]
     ):
+        if verbose:
+            console.print(f"=====\nChecking {'1 -> 2' if i == 0 else '2 -> 1'}")
         try:
             formal_1_code = clean_last_theorem_string(base_thm, base_thm_name, add_sorry=True) + "\n\n"
             formal_2_start_line = formal_1_code.count("\n") + 1
-            formal_2_code = f"{clean_last_theorem_string(reform_thm, reformulated_thm_name, add_sorry=False)} by"
+            formal_2_code = f"{clean_last_theorem_string(reform_thm, reformulated_thm_name, add_sorry=False)} := by"
         except ValueError:
-            # Invalid theorems encountered, skip this pair.
+            if verbose:
+                console.print("Invalid theorems encountered, skipping this pair.")
             continue
 
         formal_code = formal_1_code + formal_2_code
         # Preliminary check to ensure the formalization is well-typed.
         if check_proof_sub(server, formal_code, context_env, formal_2_start_line, "sorry", timeout_per_proof) is None:
+            if verbose:
+                console.print("Ill-typed formalization encountered, skipping this pair.")
             continue
 
         proof_exact = check_proof_sub(
@@ -145,13 +170,20 @@ def beql(
         )
         if proof_exact and base_thm_name in proof_exact:
             res[i] = True
-            continue
+            if verbose:
+                console.print("Proof exact")
+                console.print(Syntax(proof_exact, "lean4"))
 
     return res[0] and res[1]
 
 
 def beq_plus(
-    formalization_1: str, formalization_2: str, src_header: str, repl_config: LeanREPLConfig, timeout_per_proof: int
+    formalization_1: str,
+    formalization_2: str,
+    src_header: str,
+    repl_config: LeanREPLConfig,
+    timeout_per_proof: int,
+    verbose: bool = False,
 ) -> bool:
     """
     Checks equivalence of two formalizations using the BEq+ metric.
@@ -167,7 +199,9 @@ def beq_plus(
         True if both directions of the equivalence hold; False otherwise.
     """
     server = AutoLeanServer(config=repl_config)
-    context_env = server.run_code(src_header, add_to_session_cache=True)["env"]
+    context_run = server.run(Command(cmd=src_header), add_to_session_cache=True)
+    assert isinstance(context_run, CommandResponse)
+    context_env = context_run.env
 
     base_thm_name = "base_theorem"
     reformulated_thm_name = "reformulated_theorem"
@@ -186,15 +220,21 @@ def beq_plus(
     for i, (base_thm, reform_thm) in enumerate(
         [(formalization_1, formalization_2), (formalization_2, formalization_1)]
     ):
+        if verbose:
+            console.print(f"=====\nChecking {'1 -> 2' if i == 0 else '2 -> 1'}")
         try:
             formal_1_code = clean_last_theorem_string(base_thm, base_thm_name, add_sorry=True) + "\n\n"
             formal_2_start_line = formal_1_code.count("\n") + 1
-            formal_2_code = f"{clean_last_theorem_string(reform_thm, reformulated_thm_name, add_sorry=False)} by"
+            formal_2_code = f"{clean_last_theorem_string(reform_thm, reformulated_thm_name, add_sorry=False)} := by"
         except ValueError:
+            if verbose:
+                console.print("Invalid theorem encountered, skipping this pair.")
             continue
 
         formal_code = formal_1_code + formal_2_code
         if check_proof_sub(server, formal_code, context_env, formal_2_start_line, "sorry", timeout_per_proof) is None:
+            if verbose:
+                console.print("Ill-typed formalization encountered, skipping this pair.")
             continue
 
         # 1. Use BEqL
@@ -203,6 +243,9 @@ def beq_plus(
         )
         if proof_exact and base_thm_name in proof_exact:
             res[i] = True
+            if verbose:
+                console.print("Proof exact")
+                console.print(Syntax(proof_exact, "lean4"))
             continue
 
         # 2. try to apply the base theorem directly
@@ -216,18 +259,22 @@ def beq_plus(
         )
         if proof_apply:
             res[i] = True
+            if verbose:
+                console.print("Proof apply")
+                console.print(Syntax(proof_apply, "lean4"))
             continue
 
-        # 3. try to add the conlusion of the base theorem as hypothesis
+        # 3. try to add the conclusion of the base theorem as hypothesis
         # sanity check: if we can prove `reform_thm` using a tactic in `solver_tactics_have` without introducing the hypothesis,
         # then we should skip this `have` step as it may introduce a false positive
         # drawback of `have` strategy: variable names/types must match exactly
         provable_without_have = False
         try:
-            provable_without_have = is_valid_lean(
-                server.run_code(formal_2_code + proof_all_have, env=context_env, timeout=timeout_per_proof),
-                allow_sorry=False,
+            res_without_have = server.run(
+                Command(cmd=formal_2_code + proof_all_have, env=context_env), timeout=timeout_per_proof
             )
+            if isinstance(res_without_have, CommandResponse):
+                provable_without_have = res_without_have.lean_code_is_valid(allow_sorry=False)
         except TimeoutError:
             pass
         except (ConnectionAbortedError, json.JSONDecodeError) as e:
@@ -253,6 +300,9 @@ def beq_plus(
                 )
                 if proof_have:
                     res[i] = True
+                    if verbose:
+                        console.print("Proof have")
+                        console.print(Syntax(proof_have, "lean4"))
                     continue
 
         # 4. try to apply the base theorem with some tolerance on the differences in the conclusion
@@ -267,13 +317,16 @@ def beq_plus(
             )
             if proof_convert:
                 res[i] = True
+                if verbose:
+                    console.print("Proof convert")
+                    console.print(Syntax(proof_convert, "lean4"))
                 break
 
     return res[0] and res[1]
 
 
 def examples_limitations(metric):
-    repl_config = LeanREPLConfig(lean_version="v4.14.0", require="mathlib")
+    repl_config = LeanREPLConfig(lean_version="v4.8.0", project=TempRequireProject("mathlib"), verbose=True)
 
     src_header = """import Mathlib
 
@@ -336,37 +389,46 @@ open scoped BigOperators"""
         console.print(Syntax(formalization_1, "lean4"))
         console.print(Syntax(formalization_2, "lean4"))
         console.print(
-            f"Equivalent: {metric(formalization_1, formalization_2, src_header, repl_config, timeout_per_proof=20)}"
+            f"Proved equivalent: {metric(formalization_1, formalization_2, src_header, repl_config, timeout_per_proof=DEFAULT_TIMEOUT, verbose=True)}"
         )
 
 
 def proofnetverif(metric):
-    repl_config = LeanREPLConfig(lean_version="v4.8.0", require="mathlib")
+    repl_config = LeanREPLConfig(lean_version="v4.8.0", project=TempRequireProject("mathlib"), verbose=True)
 
-    dataset = load_dataset("PAug/ProofNetVerif", split="train")
+    dataset = load_dataset("PAug/ProofNetVerif", split="valid")
+    dataset = dataset.shuffle(seed=42).select(range(100))
 
-    nb_tested = 0
-    nb_correct = 0
-    for example in tqdm(dataset, desc=f"{metric.__name__} metric on ProofNetVerif dataset"):
-        nb_tested += 1
-        if metric(
-            example["lean4_formalization"],
-            example["prediction"],
-            example["lean4_src_header"],
-            repl_config,
-            timeout_per_proof=20,
-        ):
-            nb_correct += 1
+    metric_results = []
+    for example in tqdm(dataset, desc=f"`{metric.__name__}` metric on ProofNetVerif dataset"):
+        metric_results.append(
+            metric(
+                example["lean4_formalization"],
+                example["lean4_prediction"],
+                example["lean4_src_header"],
+                repl_config,
+                timeout_per_proof=DEFAULT_TIMEOUT,
+                verbose=False,
+            )
+        )
 
-    console.print(f"{metric.__name__} metric on ProofNetVerif dataset: {nb_correct}/{nb_tested} correct")
+    # Compute metrics
+    y_true = dataset["correct"]
+    y_pred = metric_results
+    table = Table("Metric", "Value", title=f"`{metric.__name__}` metric results on ProofNetVerif")
+    table.add_row("Accuracy", f"{accuracy_score(y_true, y_pred):.2%}")
+    table.add_row("Precision", f"{precision_score(y_true, y_pred):.2%}")
+    table.add_row("Recall", f"{recall_score(y_true, y_pred):.2%}")
+    table.add_row("F1 Score", f"{f1_score(y_true, y_pred):.2%}")
+    console.print(table)
 
 
 if __name__ == "__main__":
-    # metric = beql
-    metric = beq_plus
+    # metric_fun = beql
+    metric_fun = beq_plus
 
-    examples_limitations(metric)
-    # proofnetverif(metric)
+    examples_limitations(metric_fun)
+    # proofnetverif(metric_fun)
 
     # To run the metrics faster on a dataset, we recommend using a parallelized version.
     # Be careful with memory usage, as it can quickly become a bottleneck
