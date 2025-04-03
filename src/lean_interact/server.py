@@ -64,6 +64,7 @@ class LeanServer:
             echo=False,
             preexec_fn=lambda: _limit_memory(self.config.memory_hard_limit_mb),
         )
+        self._proc.delaybeforesend = None
         # `stty -icanon` is required to handle arbitrary long inputs in the Lean REPL
         self._proc.sendline("stty -icanon")
         self._proc.sendline(f"lake env {self.config._cache_repl_dir}/.lake/build/bin/repl || exit")

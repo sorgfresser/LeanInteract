@@ -411,6 +411,18 @@ class TestLeanServer(unittest.TestCase):
         step2 = server.run(ProofStep(tactic="rfl", proof_state=step1.proof_state))
         self.assertEqual(step2, ProofStepResponse(proof_state=2, goals=[]))
 
+    def test_run_lots_of_commands(self):
+        server = LeanServer(LeanREPLConfig(verbose=True))
+
+        init_env = server.run(Command(cmd="#eval 1"))
+        assert isinstance(init_env, CommandResponse)
+        for i in range(1000):
+            cmd = Command(
+                cmd=f"theorem womp{i} (a{i} b c : Nat) : (a{i} + b) + c = c + a{i} + b := by sorry", env=init_env.env
+            )
+            result = server.run(cmd)
+            self.assertIsInstance(result, CommandResponse)
+
     def test_bug_increasing_memory(self):
         mem_limit = 512
         server = AutoLeanServer(config=LeanREPLConfig(memory_hard_limit_mb=mem_limit, verbose=True))
@@ -435,6 +447,8 @@ class TestLeanServer(unittest.TestCase):
                 result_queue.put(("success", result))
             except TimeoutError as e:
                 result_queue.put(("timeout", e))
+            except ConnectionAbortedError as e:
+                result_queue.put(("connection_aborted", e))  # out of memory
             except Exception as e:
                 result_queue.put(("error", e))
 
