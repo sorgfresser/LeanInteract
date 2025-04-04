@@ -90,17 +90,17 @@ class LeanServer:
         assert self._proc is not None
         if verbose:
             logger.info("Sending query: %s", json_query)
-        self._proc.sendline(json_query)
-        self._proc.sendline()
-        _ = self._proc.expect_exact("\r\n\r\n", timeout=timeout)
+        self._proc.send(json_query + "\n\n")
+        self._proc.expect_exact("\r\n\r\n", timeout=timeout)
         return self._proc.before or ""
 
     def _parse_repl_output(self, raw_output: str, verbose: bool) -> dict:
         """Clean up raw REPL output and parse JSON response."""
+        if verbose:
+            logger.info("Server raw output: `%s", raw_output)
         output = raw_output.replace("\r\n", "\n")
         output = output[output.find('{"') :] if '{"' in output else ""
         if verbose:
-            logger.info("Server raw output: `%s", raw_output)
             logger.info("Server cleaned output: `%s", output)
         try:
             return json.loads(output)

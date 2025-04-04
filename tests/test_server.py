@@ -199,13 +199,6 @@ class TestLeanServer(unittest.TestCase):
         result = server.run(ProofStep(tactic="rfl", proof_state=0))
         self.assertEqual(result, ProofStepResponse(proof_state=1, goals=[]))
 
-    def test_run_multiple_commands(self):
-        server = AutoLeanServer(config=LeanREPLConfig(memory_hard_limit_mb=4096, verbose=True))
-
-        for i in range(100):
-            cmd = Command(cmd=f"theorem womp{i} (a{i} b c : Nat) : (a{i} + b) + c = c + a{i} + b := by sorry")
-            server.run(cmd)
-
     def test_lean_version(self):
         server = AutoLeanServer(config=LeanREPLConfig(lean_version="v4.14.0", verbose=True))
         result = server.run(Command(cmd="#eval Lean.versionString"))
@@ -411,11 +404,21 @@ class TestLeanServer(unittest.TestCase):
         step2 = server.run(ProofStep(tactic="rfl", proof_state=step1.proof_state))
         self.assertEqual(step2, ProofStepResponse(proof_state=2, goals=[]))
 
+    def test_run_multiple_commands(self):
+        # Test this issue: https://github.com/leanprover-community/repl/issues/77
+        server = AutoLeanServer(config=LeanREPLConfig(memory_hard_limit_mb=4096, verbose=True))
+
+        with self.assertRaises(ConnectionAbortedError):
+            for i in range(1000):
+                cmd = Command(cmd=f"theorem womp{i} (a{i} b c : Nat) : (a{i} + b) + c = c + a{i} + b := by sorry")
+                server.run(cmd)
+
     def test_run_lots_of_commands(self):
+        # Test this issue: https://github.com/leanprover-community/repl/issues/77
         server = LeanServer(LeanREPLConfig(verbose=True))
 
         init_env = server.run(Command(cmd="#eval 1"))
-        assert isinstance(init_env, CommandResponse)
+        assert not isinstance(init_env, LeanError)
         for i in range(1000):
             cmd = Command(
                 cmd=f"theorem womp{i} (a{i} b c : Nat) : (a{i} + b) + c = c + a{i} + b := by sorry", env=init_env.env

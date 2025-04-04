@@ -2,7 +2,7 @@
 # requires-python = ">=3.10"
 # dependencies = [
 #     "datasets",
-#     "lean-interact @ file:///home/poiroux/Documents/EPFL/PhD/Lean/LeanInteract",
+#     "lean-interact",
 #     "rich",
 #     "tqdm",
 #     "scikit-learn",
