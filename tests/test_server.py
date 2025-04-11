@@ -139,7 +139,7 @@ class TestLeanServer(unittest.TestCase):
             ),
         )
         tactic_result = server.run(ProofStep(tactic="rfl", proof_state=0))
-        self.assertEqual(tactic_result, ProofStepResponse(proof_state=1, goals=[]))
+        self.assertEqual(tactic_result, ProofStepResponse(proof_state=1, goals=[], proof_status="Completed"))
 
     def test_run_file_nonexistent(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
@@ -197,7 +197,7 @@ class TestLeanServer(unittest.TestCase):
             ),
         )
         result = server.run(ProofStep(tactic="rfl", proof_state=0))
-        self.assertEqual(result, ProofStepResponse(proof_state=1, goals=[]))
+        self.assertEqual(result, ProofStepResponse(proof_state=1, goals=[], proof_status="Completed"))
 
     def test_lean_version(self):
         server = AutoLeanServer(config=LeanREPLConfig(lean_version="v4.14.0", verbose=True))
@@ -251,7 +251,7 @@ class TestLeanServer(unittest.TestCase):
             ),
         )
         result = server.run(ProofStep(tactic="apply irrational_add_rat_iff.mpr", proof_state=0))
-        self.assertEqual(result, ProofStepResponse(proof_state=1, goals=[]))
+        self.assertEqual(result, ProofStepResponse(proof_state=1, goals=[], proof_status="Completed"))
 
     def test_restart_with_env(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
@@ -291,12 +291,12 @@ class TestLeanServer(unittest.TestCase):
         # Prepare restart_persistent_session_cache
         server._restart_persistent_session_cache[-2] = _SessionState(-2, 20, "", True)
         with unittest.mock.patch.object(server, "_get_repl_state_id", return_value=20):
-            mock_super.return_value = {"proofState": 20}
+            mock_super.return_value = {"proofState": 20, "goals": [], "proofStatus": "Completed"}
             result = server.run(ProofStep(proof_state=-2, tactic="test"))
             mock_super.assert_called_with(
                 request={"proofState": 20, "tactic": "test"}, verbose=False, timeout=DEFAULT_TIMEOUT
             )
-            self.assertEqual(result, ProofStepResponse(proof_state=20, goals=[]))
+            self.assertEqual(result, ProofStepResponse(proof_state=20, goals=[], proof_status="Completed"))
 
     @unittest.mock.patch("lean_interact.server.LeanServer.run_dict", return_value={})
     @unittest.mock.patch("lean_interact.server.psutil.virtual_memory")
@@ -402,7 +402,7 @@ class TestLeanServer(unittest.TestCase):
         step1 = server.run(ProofStep(tactic="intro x", proof_state=0))
         assert not isinstance(step1, LeanError)
         step2 = server.run(ProofStep(tactic="rfl", proof_state=step1.proof_state))
-        self.assertEqual(step2, ProofStepResponse(proof_state=2, goals=[]))
+        self.assertEqual(step2, ProofStepResponse(proof_state=2, goals=[], proof_status="Completed"))
 
     def test_run_multiple_commands(self):
         # Test this issue: https://github.com/leanprover-community/repl/issues/77
@@ -546,7 +546,7 @@ class TestLeanServer(unittest.TestCase):
 
         # Test that we can continue the proof from the unpickled proof state
         tactic_result = new_server.run(ProofStep(tactic="rfl", proof_state=unpickled_proof_state_id))
-        self.assertEqual(tactic_result, ProofStepResponse(proof_state=1, goals=[]))
+        self.assertEqual(tactic_result, ProofStepResponse(proof_state=1, goals=[], proof_status="Completed"))
 
     def test_pickle_fails_with_invalid_env(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))

@@ -1,5 +1,9 @@
 # LeanInteract
 
+[![PyPI version](https://badge.fury.io/py/lean-interact.svg)](https://badge.fury.io/py/lean-interact)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 **LeanInteract** is a Python package designed to seamlessly interact with Lean 4 through the [Lean REPL](https://github.com/leanprover-community/repl).
 
 ## Key Features
@@ -7,8 +11,38 @@
 - **🔗 Interactivity**: Execute Lean code and files directly from Python.
 - **🚀 Ease of Use**: LeanInteract abstracts the complexities of Lean setup and interaction.
 - **🔧 Compatibility**: Supports all Lean versions between `v4.7.0-rc1` and `v4.19.0-rc2`.
+  - We backport the latest features of Lean REPL to older versions of Lean.
 - **📦 Temporary Projects**: Easily instantiate temporary Lean environments.
   - Useful for experimenting with benchmarks depending on [Mathlib](https://github.com/leanprover-community/mathlib4) like [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) and [MiniF2F](https://github.com/yangky11/miniF2F-lean4).
+
+## Table of Contents
+
+- [Key Features](#key-features)
+- [Installation and Setup](#installation-and-setup)
+- [Script examples](#script-examples)
+- [Usage](#usage)
+  - [Basic example](#basic-example)
+  - [Tactic mode](#tactic-mode)
+  - [Custom Lean configuration](#custom-lean-configuration)
+    - [Specific Lean version](#specific-lean-version)
+    - [Existing Lean projects](#existing-lean-projects)
+    - [Temporary project with dependencies](#temporary-project-with-dependencies)
+    - [Fine-grained temporary project](#fine-grained-temporary-project)
+- [Available Queries](#available-queries)
+  - [Command](#command)
+  - [FileCommand](#filecommand)
+  - [ProofStep](#proofstep)
+  - [Environment Pickling](#environment-pickling)
+  - [ProofState Pickling](#proofstate-pickling)
+- [Helper Commands](#helper-commands)
+- [Advanced options](#advanced-options)
+  - [LeanServer](#leanserver)
+  - [Custom Lean REPL](#custom-lean-repl)
+- [Similar tools](#similar-tools)
+- [Troubleshooting](#troubleshooting)
+- [Contributing](#contributing)
+- [Citation](#citation)
+- [License](#license)
 
 ## Installation and Setup
 
@@ -22,11 +56,7 @@ Requirements:
 
 - Python >= 3.10
 - git
-- [Lean 4](https://leanprover-community.github.io/get_started.html) (or use the `install-lean` command from LeanInteract)
-
-> [!NOTE]
-> This tool is still experimental and has been primarily tested on Linux. Compatibility with macOS is not guaranteed. For Windows, use WSL.
-> Please report any issues you encounter.
+- [Lean 4](https://leanprover-community.github.io/get_started.html) (Tip: use the `install-lean` command from LeanInteract)
 
 ## Script examples
 
@@ -35,11 +65,12 @@ In the `examples` directory, you will find a few scripts demonstrating how to us
 - `proof_generation_and_autoformalization.py`: use [DeepSeek-Prover-V1.5](https://arxiv.org/abs/2408.08152), [Goedel-Prover](https://goedel-lm.github.io/), and other models on [MiniF2F](https://github.com/yangky11/miniF2F-lean4) and [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) benchmarks.
 - `beq_plus.py`: run the autoformalization [BEq+](https://arxiv.org/abs/2406.07222) metric on the [ProofNetVerif](https://huggingface.co/datasets/PAug/ProofNetVerif) benchmark.
 - `type_check.py`: optimize type checking using environment states.
-- `statement_autoformalization_sampling.py`: sampling-based method used in [Improving Autoformalization using Type Checking](https://arxiv.org/abs/2406.07222).
 
 ## Usage
 
-### Default Lean version (latest available)
+### Basic example
+
+The following code will use the default Lean version (latest available):
 
 ```python
 from lean_interact import LeanREPLConfig, LeanServer, Command
@@ -53,7 +84,15 @@ server.run(Command(cmd="theorem ex (n : Nat) : n = 5 → n = 5 := id"))
 <summary>Output</summary>
 
 ```python
-CommandResponse(env=0)
+CommandResponse(
+  env=0,
+  messages=[
+    Message(start_pos=Pos(line=1, column=0),
+    end_pos=Pos(line=1, column=42),
+    data='Goals accomplished!',
+    severity='info')
+  ]
+)
 ```
 
 </details>
@@ -68,21 +107,116 @@ server.run(Command(cmd="example (x : Nat) : x = 5 → x = 5 := by exact ex x", e
 <summary>Output</summary>
 
 ```python
-CommandResponse(env=1)
+CommandResponse(
+  env=1,
+  messages=[
+    Message(start_pos=Pos(line=1, column=0),
+    end_pos=Pos(line=1, column=50),
+    data='Goals accomplished!',
+    severity='info')
+  ]
+)
 ```
 
 </details>
 
+See [Available Queries](#available-queries) for all available commands.
+
 > [!NOTE]
 > The initial invocation of `LeanREPLConfig` might take some time as it downloads and builds Lean REPL. Future executions with identical parameters will be significantly quicker due to caching.
 
-### Specific Lean version
+### Tactic mode
+
+> [!WARNING]
+> This feature is experimental in Lean REPL and may not work as expected: some valid proofs might be incorrectly rejected. Please report any issues you encounter [here](https://github.com/leanprover-community/repl/issues).
+
+First, let's run a command to create a theorem with a `sorry` proof:
+
+```python
+server.run(Command(cmd="theorem ex (n : Nat) : n = 5 → n = 5 := sorry"))
+```
+
+<details>
+<summary>Output</summary>
+
+```python
+CommandResponse(
+  sorries=[
+    Sorry(start_pos=Pos(line=1, column=40),
+    end_pos=Pos(line=1, column=45),
+    goal='n : Nat\n⊢ n = 5 → n = 5',
+    proof_state=0)
+  ],
+  env=0,
+  messages=[
+    Message(start_pos=Pos(line=1, column=8),
+    end_pos=Pos(line=1, column=10),
+    data="declaration uses 'sorry'",
+    severity='warning')
+  ]
+)
+```
+
+</details>
+
+You can then iterate on the proof state by executing tactics:
+
+```python
+from lean_interact import ProofStep
+
+server.run(ProofStep(tactic="intro h", proof_state=0))
+```
+
+<details>
+<summary>Output</summary>
+
+```python
+ProofStepResponse(
+  proof_state=1,
+  goals=['n : Nat\nh : n = 5\n⊢ n = 5'],
+  proof_status='Incomplete: open goals remain'
+)
+```
+
+</details>
+
+```python
+server.run(ProofStep(tactic="exact h", proof_state=1))
+```
+
+<details>
+<summary>Output</summary>
+
+```python
+ProofStepResponse(proof_state=2, goals=[], proof_status='Completed')
+```
+
+</details>
+
+or by directly running the entire proof:
+
+```python
+server.run(ProofStep(tactic="(\nintro h\nexact h)", proof_state=0))
+```
+
+<details>
+<summary>Output</summary>
+
+```python
+ProofStepResponse(proof_state=3, goals=[], proof_status='Completed')
+```
+
+</details>
+
+### Custom Lean configuration
+
+#### Specific Lean version
 
 ```python
 config = LeanREPLConfig(lean_version="v4.7.0")
 ```
 
-### Existing Lean projects
+#### Existing Lean projects
 
 ```python
 config = LeanREPLConfig(project=LocalProject("path/to/your/project"))
@@ -106,7 +240,7 @@ server.run(FileCommand(path="file.lean"))
 > [!IMPORTANT]
 > Ensure the project can be *successfully* built with `lake build` before using LeanInteract.
 
-### Temporary project with dependencies
+#### Temporary project with dependencies
 
 ```python
 from lean_interact import TempRequireProject
@@ -138,21 +272,19 @@ theorem ex_mathlib (x : ℝ) (y : ℚ) :
 
 ```python
 CommandResponse(
-  messages=[
-    Message(
-      start_pos=Pos(line=2, column=8),
-      end_pos=Pos(line=2, column=18),
-      data="declaration uses 'sorry'",
-      severity='warning'
-  )],
+  env=0,
   sorries=[
-    Sorry(
-      start_pos=Pos(line=3, column=46),
-      end_pos=Pos(line=3, column=51),
-      goal='x : ℝ\ny : ℚ\n⊢ Irrational x → Irrational (x + ↑y)',
-      proof_state=0
-  )],
-  env=0
+    Sorry(end_pos=Pos(line=3, column=51),
+    goal='x : ℝ\ny : ℚ\n⊢ Irrational x → Irrational (x + ↑y)',
+    start_pos=Pos(line=3, column=46),
+    proof_state=0)
+  ],
+  messages=[
+    Message(end_pos=Pos(line=2, column=18),
+    data="declaration uses 'sorry'",
+    start_pos=Pos(line=2, column=8),
+    severity='warning')
+  ]
 )
 ```
 
@@ -163,7 +295,7 @@ CommandResponse(
 > - Mathlib is a large library and may take some time to download and build.
 > - A separate cache is used for each unique set of dependencies.
 
-### Fine-grained temporary project
+#### Fine-grained temporary project
 
 For more control over the temporary project, you can use `TemporaryProject` to specify the content of the lakefile.
 
@@ -186,79 +318,82 @@ require mathlib from git
 """))
 ```
 
-### Tactic mode (experimental)
+## Available Queries
+
+LeanInteract supports various types of queries to interact with the Lean REPL. We briefly describe them in this section. You can check the file [interface.py](src/lean_interact/interface.py) for more details.
+
+### Command
+
+Execute Lean code directly:
 
 ```python
-server.run(Command(cmd="theorem ex (n : Nat) : n = 5 → n = 5 := sorry"))
+from lean_interact import Command
+
+# Execute a simple theorem
+response = server.run(Command(cmd="theorem ex (n : Nat) : n = 5 → n = 5 := id"))
+
+# Execute with options to get tactics information
+response = server.run(Command(cmd="theorem ex (n : Nat) : n = 5 → n = 5 := by simp", all_tactics=True))
+
+# Continue in the same environment
+response = server.run(Command(cmd="#check ex", env=response.env))
 ```
 
-<details>
-<summary>Output</summary>
+### FileCommand
+
+Process Lean files:
 
 ```python
-CommandResponse(
-  messages=[
-    Message(
-      start_pos=Pos(line=1, column=8),
-      end_pos=Pos(line=1, column=10),
-      data="declaration uses 'sorry'",
-      severity='warning'
-  )],
-  sorries=[
-    Sorry(
-      start_pos=Pos(line=1, column=40),
-      end_pos=Pos(line=1, column=45),
-      goal='n : Nat\n⊢ n = 5 → n = 5',
-      proof_state=0
-  )],
-  env=0
-)
+from lean_interact import FileCommand
+
+# Execute a Lean file
+response = server.run(FileCommand(path="myfile.lean"))
+
+# With options for more information
+response = server.run(FileCommand(path="myfile.lean", root_goals=True))
 ```
 
-</details>
+### ProofStep
 
-You can then iterate on the proof state by executing tactics:
+Work with proof tactics step by step:
 
 ```python
-server.run(ProofStep(tactic="intro h", proof_state=0))
+from lean_interact import ProofStep
+
+# Apply a tactic to a proof state
+response = server.run(ProofStep(proof_state=0, tactic="intro h"))
+
+# Apply multiple tactics at once
+response = server.run(ProofStep(proof_state=0, tactic="intro h\nexact h"))
 ```
 
-<details>
-<summary>Output</summary>
+### Environment Pickling
+
+Save and restore environment states:
 
 ```python
-ProofStepResponse(goals=['n : Nat\nh : n = 5\n⊢ n = 5'], proof_state=1)
+from lean_interact import PickleEnvironment, UnpickleEnvironment
+
+# Save an environment
+server.run(PickleEnvironment(env=1, pickle_to="env_state.olean"))
+
+# Restore an environment
+server.run(UnpickleEnvironment(unpickle_env_from="env_state.olean"))
 ```
 
-</details>
+### ProofState Pickling
+
+Save and restore proof states:
 
 ```python
-server.run(ProofStep(tactic="exact h", proof_state=1))
+from lean_interact import PickleProofState, UnpickleProofState
+
+# Save a proof state
+server.run(PickleProofState(proof_state=2, pickle_to="proof_state.olean"))
+
+# Restore a proof state
+server.run(UnpickleProofState(unpickle_proof_state_from="proof_state.olean", env=1))
 ```
-
-<details>
-<summary>Output</summary>
-
-```python
-ProofStepResponse(goals=[], proof_state=2)
-```
-
-</details>
-
-or by directly running the entire proof:
-
-```python
-server.run(ProofStep(tactic="(\nintro h\nexact h)", proof_state=0))
-```
-
-<details>
-<summary>Output</summary>
-
-```python
-ProofStepResponse(goals=[], proof_state=3)
-```
-
-</details>
 
 ## Helper Commands
 
@@ -296,3 +431,42 @@ We recommend checking out these tools:
 - **[leanclient](https://github.com/oOo0oOo/leanclient)**: Interact with the Lean LSP server.
 
 LeanInteract is inspired by **[pylean](https://github.com/zhangir-azerbayev/repl)** and **[lean4_jupyter](https://github.com/utensil/lean4_jupyter)**.
+
+## Troubleshooting
+
+Common issues and their solutions:
+
+1. **Out of memory errors**: Reduce parallel processing or increase system memory. Alternatively, use `AutoLeanServer` with conservative memory settings
+
+2. **Timeout errors**: Currently, `LeanServer` simply stops the Lean REPL if a command times out. Use `AutoLeanServer` for automatic recovery.
+
+3. **Long waiting times during first run**: This is expected as Lean REPL is being downloaded and built. Additionally, if you are importing Mathlib it will take even more time. Subsequent runs will be much faster.
+
+## Contributing
+
+Contributions are welcome! Here's how you can help:
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Commit your changes: `git commit -am 'Add new feature'`
+4. Push to the branch: `git push origin feature-name`
+5. Submit a pull request
+
+Please ensure your code includes appropriate tests.
+
+## Citation
+
+If you use LeanInteract in your research, please cite it as follows:
+
+```bibtex
+@software{leaninteract,
+  author = {Poiroux, Auguste},
+  title = {LeanInteract: A Python Interface for Lean 4},
+  url = {https://github.com/augustepoiroux/lean-interact},
+  year = {2025}
+}
+```
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
