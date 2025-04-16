@@ -9,7 +9,7 @@
 # ///
 """
 This module provides functions to type-check Lean formalizations
-using sequential, parallel, and optimized batch methods.
+using sequential and optimized batch methods.
 """
 
 import json

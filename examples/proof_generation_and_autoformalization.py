@@ -97,7 +97,7 @@ def load_proofnetsharp_dataset(split: Literal["valid", "test"] = "valid") -> lis
 
 def check_context_proofs(args: tuple[int, LeanREPLConfig, int, tuple[str, str, list[str]]]) -> tuple[int, str | None]:
     """
-    Filter function to check if at least one proof is valid for a given context and formalization.
+    Filter function to check if at least one proof is valid for a given context and declaration to prove.
     """
     idx, repl_config, timeout_per_proof, context_proofs = args
     context_code, formalization_code, proofs = context_proofs

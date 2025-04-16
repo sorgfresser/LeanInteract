@@ -60,11 +60,11 @@ Requirements:
 
 ## Script examples
 
-In the `examples` directory, you will find a few scripts demonstrating how to use LeanInteract.
+In the [`examples`](examples) directory, you will find a few scripts demonstrating how to use LeanInteract.
 
-- `proof_generation_and_autoformalization.py`: use [DeepSeek-Prover-V1.5](https://arxiv.org/abs/2408.08152), [Goedel-Prover](https://goedel-lm.github.io/), and other models on [MiniF2F](https://github.com/yangky11/miniF2F-lean4) and [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) benchmarks.
-- `beq_plus.py`: run the autoformalization [BEq+](https://arxiv.org/abs/2406.07222) metric on the [ProofNetVerif](https://huggingface.co/datasets/PAug/ProofNetVerif) benchmark.
-- `type_check.py`: optimize type checking using environment states.
+- [`proof_generation_and_autoformalization.py`](examples/proof_generation_and_autoformalization.py): use [DeepSeek-Prover-V1.5](https://arxiv.org/abs/2408.08152), [Goedel-Prover](https://goedel-lm.github.io/), and other models on [MiniF2F](https://github.com/yangky11/miniF2F-lean4) and [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) benchmarks.
+- [`beq_plus.py`](examples/beq_plus.py): run the autoformalization [BEq+](https://arxiv.org/abs/2406.07222) metric on the [ProofNetVerif](https://huggingface.co/datasets/PAug/ProofNetVerif) benchmark.
+- [`type_check.py`](examples/type_check.py): optimize type checking using environment states.
 
 ## Usage
 
@@ -355,7 +355,7 @@ response = server.run(FileCommand(path="myfile.lean", root_goals=True))
 
 ### ProofStep
 
-Work with proof tactics step by step:
+Work with proofs step by step using tactics:
 
 ```python
 from lean_interact import ProofStep
@@ -364,7 +364,7 @@ from lean_interact import ProofStep
 response = server.run(ProofStep(proof_state=0, tactic="intro h"))
 
 # Apply multiple tactics at once
-response = server.run(ProofStep(proof_state=0, tactic="intro h\nexact h"))
+response = server.run(ProofStep(proof_state=0, tactic="(\nintro h\nexact h)"))
 ```
 
 ### Environment Pickling
@@ -452,15 +452,13 @@ Contributions are welcome! Here's how you can help:
 4. Push to the branch: `git push origin feature-name`
 5. Submit a pull request
 
-Please ensure your code includes appropriate tests.
-
 ## Citation
 
 If you use LeanInteract in your research, please cite it as follows:
 
 ```bibtex
 @software{leaninteract,
-  author = {Poiroux, Auguste},
+  author = {Poiroux, Auguste and Kuncak, Viktor and Bosselut, Antoine},
   title = {LeanInteract: A Python Interface for Lean 4},
   url = {https://github.com/augustepoiroux/lean-interact},
   year = {2025}

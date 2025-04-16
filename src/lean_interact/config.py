@@ -284,13 +284,9 @@ class LeanREPLConfig:
         if not lean_versions_sha:
             raise ValueError("No Lean versions are available in the Lean REPL repository.")
         if self.lean_version is None:
-            if (
-                self.project is None
-                or isinstance(self.project, TemporaryProject)
-                or isinstance(self.project, TempRequireProject)
-            ):
+            if self.project is None or isinstance(self.project, (TemporaryProject, TempRequireProject)):
                 self.lean_version = lean_versions_sha[-1][0]
-            elif isinstance(self.project, LocalProject) or isinstance(self.project, GitProject):
+            elif isinstance(self.project, (LocalProject, GitProject)):
                 # get the Lean version from the project
                 inferred_ver = get_project_lean_version(self.project._get_directory(self.cache_dir))
                 self.lean_version = inferred_ver if inferred_ver else lean_versions_sha[-1][0]
