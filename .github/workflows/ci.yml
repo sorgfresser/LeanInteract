@@ -19,6 +19,7 @@ jobs:
           pip install --upgrade pip
           pip install .
           install-lean
+          echo "$HOME/.elan/bin" >> $GITHUB_PATH
 
       - name: Run tests
         run: python -m unittest discover -s ./tests
