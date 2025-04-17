@@ -9,6 +9,7 @@ from typing import overload
 
 import pexpect
 import psutil
+from filelock import FileLock
 
 from lean_interact.config import LeanREPLConfig
 from lean_interact.interface import (
@@ -132,10 +133,10 @@ class LeanServer:
             self.kill()
             raise ConnectionAbortedError(
                 "The Lean server closed unexpectedly. Possible reasons (not exhaustive):\n"
-                "- An uncaught exception in the Lean REPL (for example, an unexistent file has been requested)\n"
+                "- An uncaught exception in the Lean REPL (for example, an inexistent file has been requested)\n"
                 "- Not enough memory and/or compute available\n"
                 "- The cached Lean REPL is corrupted. In this case, clear the cache"
-                " using the `clear_cache` (`from pyleanrepl import clear_cache`) method."
+                " using the `clear-lean-cache` command."
             ) from e
 
         return self._parse_repl_output(raw_output, verbose)
@@ -260,28 +261,31 @@ class AutoLeanServer(LeanServer):
         Reload the session cache. This method should be called only after a restart of the Lean REPL.
         """
         for state_data in self._restart_persistent_session_cache.values():
-            if state_data.is_proof_state:
-                cmd = UnpickleProofState(unpickle_proof_state_from=state_data.pickle_file, env=state_data.repl_id)
-            else:
-                cmd = UnpickleEnvironment(unpickle_env_from=state_data.pickle_file)
-            result = self.run(
-                cmd,
-                verbose=verbose,
-                timeout=DEFAULT_TIMEOUT,
-                add_to_session_cache=False,
-            )
-            if isinstance(result, LeanError):
-                raise ValueError(
-                    f"Could not reload the session cache. The Lean server returned an error: {result.message}"
+            # Use file lock when accessing the pickle file to prevent cache invalidation
+            # from multiple concurrent processes
+            with FileLock(f"{state_data.pickle_file}.lock", timeout=60):
+                if state_data.is_proof_state:
+                    cmd = UnpickleProofState(unpickle_proof_state_from=state_data.pickle_file, env=state_data.repl_id)
+                else:
+                    cmd = UnpickleEnvironment(unpickle_env_from=state_data.pickle_file)
+                result = self.run(
+                    cmd,
+                    verbose=verbose,
+                    timeout=DEFAULT_TIMEOUT,
+                    add_to_session_cache=False,
                 )
-            elif isinstance(result, CommandResponse):
-                state_data.repl_id = result.env
-            elif isinstance(result, ProofStepResponse):
-                state_data.repl_id = result.proof_state
-            else:
-                raise ValueError(
-                    f"Could not reload the session cache. The Lean server returned an unexpected response: {result}"
-                )
+                if isinstance(result, LeanError):
+                    raise ValueError(
+                        f"Could not reload the session cache. The Lean server returned an error: {result.message}"
+                    )
+                elif isinstance(result, CommandResponse):
+                    state_data.repl_id = result.env
+                elif isinstance(result, ProofStepResponse):
+                    state_data.repl_id = result.proof_state
+                else:
+                    raise ValueError(
+                        f"Could not reload the session cache. The Lean server returned an unexpected response: {result}"
+                    )
 
     def restart(self, verbose: bool = False) -> None:
         super().restart()
@@ -295,7 +299,10 @@ class AutoLeanServer(LeanServer):
             env_id: The environment id to remove.
         """
         if (state_cache := self._restart_persistent_session_cache.pop(session_state_id, None)) is not None:
-            os.remove(state_cache.pickle_file)
+            pickle_file = state_cache.pickle_file
+            with FileLock(f"{pickle_file}.lock", timeout=60):
+                if os.path.exists(pickle_file):
+                    os.remove(pickle_file)
 
     def clear_session_cache(self, force: bool = False) -> None:
         """
@@ -338,18 +345,22 @@ class AutoLeanServer(LeanServer):
         else:
             request = PickleEnvironment(env=repl_id, pickle_to=pickle_file)
 
-        result = self.run(request, verbose=verbose, timeout=DEFAULT_TIMEOUT)
-        if isinstance(result, LeanError):
-            raise ValueError(
-                f"Could not store the result in the session cache. The Lean server returned an error: {result.message}"
+        # Use file lock when accessing the pickle file to prevent cache invalidation
+        # from multiple concurrent processes
+        with FileLock(f"{pickle_file}.lock", timeout=60):
+            result = self.run(request, verbose=verbose, timeout=DEFAULT_TIMEOUT)
+            if isinstance(result, LeanError):
+                raise ValueError(
+                    f"Could not store the result in the session cache. The Lean server returned an error: {result.message}"
+                )
+
+            self._restart_persistent_session_cache[self._state_counter] = _SessionState(
+                session_id=self._state_counter,
+                repl_id=repl_id,
+                pickle_file=pickle_file,
+                is_proof_state=is_proof_state,
             )
 
-        self._restart_persistent_session_cache[self._state_counter] = _SessionState(
-            session_id=self._state_counter,
-            repl_id=repl_id,
-            pickle_file=pickle_file,
-            is_proof_state=is_proof_state,
-        )
         return self._state_counter
 
     def _run_dict_backoff(self, request: dict, verbose: bool, timeout: float | None, restart_counter: int = 0) -> dict:

@@ -8,6 +8,7 @@ readme = "README.md"
 authors = [{ name = "Auguste Poiroux", email = "auguste.poiroux@epfl.ch" }]
 requires-python = ">=3.10"
 dependencies = [
+    "filelock>=3.18.0",
     "gitpython>=3.1.44",
     "pexpect>=4.9.0",
     "psutil>=6.1.0",

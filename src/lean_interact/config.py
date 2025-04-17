@@ -5,6 +5,7 @@ import subprocess
 from dataclasses import dataclass
 from typing import Literal
 
+from filelock import FileLock
 from git import GitCommandError, Repo
 
 from lean_interact.utils import (
@@ -55,8 +56,10 @@ class LocalProject(BaseProject):
         """Instantiate the local project."""
         stdout = None if verbose else subprocess.DEVNULL
         stderr = None if verbose else subprocess.DEVNULL
-        # check that the project is buildable
-        subprocess.run(["lake", "build"], cwd=self.directory, check=True, stdout=stdout, stderr=stderr)
+
+        with FileLock(f"{self.directory}.lock"):
+            # check that the project is buildable
+            subprocess.run(["lake", "build"], cwd=self.directory, check=True, stdout=stdout, stderr=stderr)
 
 
 @dataclass(frozen=True)
@@ -77,18 +80,19 @@ class GitProject(BaseProject):
 
         project_dir = self._get_directory(cache_dir)
 
-        # check if the git repository is already cloned
-        repo = Repo(project_dir) if os.path.exists(project_dir) else Repo.clone_from(self.url, project_dir)
+        with FileLock(f"{project_dir}.lock"):
+            # check if the git repository is already cloned
+            repo = Repo(project_dir) if os.path.exists(project_dir) else Repo.clone_from(self.url, project_dir)
 
-        if self.rev:
-            repo.git.checkout(self.rev)
-        else:
-            repo.git.pull()
+            if self.rev:
+                repo.git.checkout(self.rev)
+            else:
+                repo.git.pull()
 
-        repo.submodule_update(init=True, recursive=True)
+            repo.submodule_update(init=True, recursive=True)
 
-        # check that the project is buildable
-        subprocess.run(["lake", "build"], cwd=project_dir, check=True, stdout=stdout, stderr=stderr)
+            # check that the project is buildable
+            subprocess.run(["lake", "build"], cwd=project_dir, check=True, stdout=stdout, stderr=stderr)
 
 
 @dataclass(frozen=True)
@@ -111,26 +115,28 @@ class BaseTempProject(BaseProject):
 
         tmp_project_dir = self._get_directory(cache_dir, lean_version)
 
-        # check if the Lean project is already built
-        if not os.path.exists(os.path.join(tmp_project_dir, "lakefile.lean")):
-            # clean the content of the folder in case of a previous aborted build
-            shutil.rmtree(tmp_project_dir, ignore_errors=True)
-            os.makedirs(tmp_project_dir, exist_ok=True)
+        # Lock the temporary project directory during setup
+        with FileLock(f"{tmp_project_dir}.lock"):
+            # check if the Lean project is already built
+            if not os.path.exists(os.path.join(tmp_project_dir, "lakefile.lean")):
+                # clean the content of the folder in case of a previous aborted build
+                shutil.rmtree(tmp_project_dir, ignore_errors=True)
+                os.makedirs(tmp_project_dir, exist_ok=True)
 
-            # initialize the Lean project
-            cmd_init = ["lake", f"+{lean_version}", "init", "dummy", "exe.lean"]
-            if lean_version.startswith("v4") and int(lean_version.split(".")[1]) <= 7:
-                cmd_init = ["lake", f"+{lean_version}", "init", "dummy", "exe"]
-            subprocess.run(cmd_init, cwd=tmp_project_dir, check=True, stdout=stdout, stderr=stderr)
+                # initialize the Lean project
+                cmd_init = ["lake", f"+{lean_version}", "init", "dummy", "exe.lean"]
+                if lean_version.startswith("v4") and int(lean_version.split(".")[1]) <= 7:
+                    cmd_init = ["lake", f"+{lean_version}", "init", "dummy", "exe"]
+                subprocess.run(cmd_init, cwd=tmp_project_dir, check=True, stdout=stdout, stderr=stderr)
 
-            # Create or modify the lakefile
-            self._modify_lakefile(tmp_project_dir, lean_version)
+                # Create or modify the lakefile
+                self._modify_lakefile(tmp_project_dir, lean_version)
 
-            logger.info("Preparing Lean environment with dependencies (may take a while the first time)...")
-            subprocess.run(["lake", "update"], cwd=tmp_project_dir, check=True, stdout=stdout, stderr=stderr)
-            # in case mathlib is used as a dependency, we try to get the cache
-            subprocess.run(["lake", "exe", "cache", "get"], cwd=tmp_project_dir, stdout=stdout, stderr=stderr)
-            subprocess.run(["lake", "build"], cwd=tmp_project_dir, check=True, stdout=stdout, stderr=stderr)
+                logger.info("Preparing Lean environment with dependencies (may take a while the first time)...")
+                subprocess.run(["lake", "update"], cwd=tmp_project_dir, check=True, stdout=stdout, stderr=stderr)
+                # in case mathlib is used as a dependency, we try to get the cache
+                subprocess.run(["lake", "exe", "cache", "get"], cwd=tmp_project_dir, stdout=stdout, stderr=stderr)
+                subprocess.run(["lake", "build"], cwd=tmp_project_dir, check=True, stdout=stdout, stderr=stderr)
 
     def _get_hash_content(self, lean_version: str) -> str:
         """Return a unique hash for the project content."""
@@ -263,58 +269,63 @@ class LeanREPLConfig:
     def _setup_repl(self) -> None:
         assert isinstance(self.repl_rev, str)
 
-        # check if the repl is already cloned
-        if not os.path.exists(self.cache_clean_repl_dir):
-            os.makedirs(self.cache_clean_repl_dir, exist_ok=True)
-            Repo.clone_from(self.repl_git, self.cache_clean_repl_dir)
+        # Lock the clean REPL directory during setup to prevent race conditions
+        with FileLock(f"{self.cache_clean_repl_dir}.lock", timeout=300):
+            # check if the repl is already cloned
+            if not os.path.exists(self.cache_clean_repl_dir):
+                os.makedirs(self.cache_clean_repl_dir, exist_ok=True)
+                Repo.clone_from(self.repl_git, self.cache_clean_repl_dir)
 
-        repo = Repo(self.cache_clean_repl_dir)
-        try:
-            repo.git.checkout(self.repl_rev)
-        except GitCommandError:
-            repo.remote().pull()
+            repo = Repo(self.cache_clean_repl_dir)
             try:
                 repo.git.checkout(self.repl_rev)
-            except GitCommandError as e:
-                raise ValueError(f"Lean REPL version `{self.repl_rev}` is not available.") from e
+            except GitCommandError:
+                repo.remote().pull()
+                try:
+                    repo.git.checkout(self.repl_rev)
+                except GitCommandError as e:
+                    raise ValueError(f"Lean REPL version `{self.repl_rev}` is not available.") from e
 
-        # check if the Lean version is available in the repository
-        lean_versions_sha = self._get_available_lean_versions_sha()
-        lean_versions_sha_dict = dict(lean_versions_sha)
-        if not lean_versions_sha:
-            raise ValueError("No Lean versions are available in the Lean REPL repository.")
-        if self.lean_version is None:
-            if self.project is None or isinstance(self.project, (TemporaryProject, TempRequireProject)):
-                self.lean_version = lean_versions_sha[-1][0]
-            elif isinstance(self.project, (LocalProject, GitProject)):
-                # get the Lean version from the project
-                inferred_ver = get_project_lean_version(self.project._get_directory(self.cache_dir))
-                self.lean_version = inferred_ver if inferred_ver else lean_versions_sha[-1][0]
-        if self.lean_version not in lean_versions_sha_dict:
-            raise ValueError(
-                f"Lean version `{self.lean_version}` is required but not available in the Lean REPL repository."
-            )
+            # check if the Lean version is available in the repository
+            lean_versions_sha = self._get_available_lean_versions_sha()
+            lean_versions_sha_dict = dict(lean_versions_sha)
+            if not lean_versions_sha:
+                raise ValueError("No Lean versions are available in the Lean REPL repository.")
+            if self.lean_version is None:
+                if self.project is None or isinstance(self.project, (TemporaryProject, TempRequireProject)):
+                    self.lean_version = lean_versions_sha[-1][0]
+                elif isinstance(self.project, (LocalProject, GitProject)):
+                    # get the Lean version from the project
+                    inferred_ver = get_project_lean_version(self.project._get_directory(self.cache_dir))
+                    self.lean_version = inferred_ver if inferred_ver else lean_versions_sha[-1][0]
+            if self.lean_version not in lean_versions_sha_dict:
+                raise ValueError(
+                    f"Lean version `{self.lean_version}` is required but not available in the Lean REPL repository."
+                )
 
         # check if the repl revision is already in the cache
         self._cache_repl_dir = os.path.join(self.cache_dir, self.repo_name, f"repl_{self.repl_rev}_{self.lean_version}")
-        if not os.path.exists(self._cache_repl_dir):
-            # copy the repository to the version directory and checkout the required revision
-            os.makedirs(self._cache_repl_dir, exist_ok=True)
-            shutil.copytree(self.cache_clean_repl_dir, self._cache_repl_dir, dirs_exist_ok=True)
-            cached_repo = Repo(self._cache_repl_dir)
-            cached_repo.git.checkout(lean_versions_sha_dict[self.lean_version])
 
-        # check that the lean version is correct
-        assert self.lean_version == get_project_lean_version(self._cache_repl_dir), (
-            f"An error occured while preparing the Lean REPL. The requested Lean version `{self.lean_version}` "
-            f"does not match the fetched Lean version in the repository `{get_project_lean_version(self._cache_repl_dir)}`."
-            f"Please open an issue on GitHub if you think this is a bug."
-        )
+        # Lock the version-specific REPL directory during setup
+        with FileLock(f"{self._cache_repl_dir}.lock", timeout=300):  # 5 minute timeout for long-running operations
+            if not os.path.exists(self._cache_repl_dir):
+                # copy the repository to the version directory and checkout the required revision
+                os.makedirs(self._cache_repl_dir, exist_ok=True)
+                shutil.copytree(self.cache_clean_repl_dir, self._cache_repl_dir, dirs_exist_ok=True)
+                cached_repo = Repo(self._cache_repl_dir)
+                cached_repo.git.checkout(lean_versions_sha_dict[self.lean_version])
 
-        # build the repl
-        subprocess.run(
-            ["lake", "build"], cwd=self._cache_repl_dir, check=True, stdout=self._stdout, stderr=self._stderr
-        )
+            # check that the lean version is correct
+            assert self.lean_version == get_project_lean_version(self._cache_repl_dir), (
+                f"An error occured while preparing the Lean REPL. The requested Lean version `{self.lean_version}` "
+                f"does not match the fetched Lean version in the repository `{get_project_lean_version(self._cache_repl_dir)}`."
+                f"Please open an issue on GitHub if you think this is a bug."
+            )
+
+            # build the repl
+            subprocess.run(
+                ["lake", "build"], cwd=self._cache_repl_dir, check=True, stdout=self._stdout, stderr=self._stderr
+            )
 
     def _get_available_lean_versions_sha(self) -> list[tuple[str, str]]:
         """

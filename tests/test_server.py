@@ -433,6 +433,7 @@ class TestLeanServer(unittest.TestCase):
         # Get initial memory usage
         assert server._proc is not None
         server_process = psutil.Process(server._proc.pid)
+        time.sleep(1)  # Give the process time to start
         start_mem = server_process.memory_info().rss / (1024 * 1024)  # Convert to MB
 
         # Run code in separate thread to allow memory monitoring

@@ -297,7 +297,7 @@ CommandResponse(
 
 #### Fine-grained temporary project
 
-For more control over the temporary project, you can use `TemporaryProject` to specify the content of the lakefile.
+For more control over the temporary project, you can use `TemporaryProject` to specify the content of the lakefile (`.lean` format).
 
 ```python
 from lean_interact import TemporaryProject
