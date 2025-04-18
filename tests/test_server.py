@@ -463,12 +463,15 @@ class TestLeanServer(unittest.TestCase):
         # Monitor memory usage
         max_mem = start_mem
         while thread.is_alive():
-            current_mem = server_process.memory_info().rss / (1024 * 1024)
-            max_mem = max(max_mem, current_mem)
-            if current_mem > mem_limit:
-                server.kill()
-                raise MemoryError(f"Memory usage exceeded limit: {current_mem:.1f}MB > {mem_limit}MB")
-            time.sleep(1)
+            try:
+                current_mem = server_process.memory_info().rss / (1024 * 1024)
+                max_mem = max(max_mem, current_mem)
+                if current_mem > mem_limit:
+                    server.kill()
+                    raise MemoryError(f"Memory usage exceeded limit: {current_mem:.1f}MB > {mem_limit}MB")
+                time.sleep(1)
+            except psutil.NoSuchProcess:
+                break
 
         # Get result
         status, result = result_queue.get()

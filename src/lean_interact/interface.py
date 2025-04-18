@@ -67,7 +67,7 @@ class FileCommand(BaseREPLQuery, CommandOptions):
     path: Annotated[str, Field(min_length=1)]
 
 
-class ProofStep(BaseREPLQuery, REPLBaseModel):
+class ProofStep(BaseREPLQuery):
     """Proof step in the REPL.
     Attributes:
         proof_state: The proof state to start from.
@@ -161,8 +161,8 @@ class Sorry(REPLBaseModel):
         proof_state: The proof state associated to the sorry.
     """
 
-    start_pos: Annotated[Pos, Field(alias="pos")]
-    end_pos: Annotated[Pos, Field(alias="endPos")]
+    start_pos: Annotated[Pos | None, Field(alias="pos")] = None
+    end_pos: Annotated[Pos | None, Field(alias="endPos")] = None
     goal: str
     proof_state: Annotated[int | None, Field(alias="proofState")] = None
 
