@@ -1,7 +1,9 @@
+import asyncio
 import gc
 import hashlib
 import json
 import os
+import threading
 from copy import deepcopy
 from dataclasses import dataclass
 from time import sleep
@@ -34,6 +36,7 @@ DEFAULT_TIMEOUT: int | None = None
 class LeanServer:
     config: LeanREPLConfig
     _proc: pexpect.spawn | None
+    _lock: threading.Lock
 
     def __init__(self, config: LeanREPLConfig):
         """
@@ -50,6 +53,7 @@ class LeanServer:
         self.config = config
         assert self.config.is_setup(), "The Lean environment has not been set up properly."
         self._proc = None
+        self._lock = threading.Lock()
         self.start()
 
     @property
@@ -59,7 +63,7 @@ class LeanServer:
     def start(self) -> None:
         self._proc = pexpect.spawn(
             "/bin/bash",
-            cwd=self.config._working_dir,
+            cwd=self.config.working_dir,
             encoding="utf-8",
             codec_errors="replace",
             echo=False,
@@ -68,7 +72,7 @@ class LeanServer:
         self._proc.delaybeforesend = None
         # `stty -icanon` is required to handle arbitrary long inputs in the Lean REPL
         self._proc.sendline("stty -icanon")
-        self._proc.sendline(f"lake env {self.config._cache_repl_dir}/.lake/build/bin/repl || exit")
+        self._proc.sendline(f"lake env {self.config.cache_repl_dir}/.lake/build/bin/repl || exit")
 
     def is_alive(self) -> bool:
         return hasattr(self, "_proc") and self._proc is not None and self._proc.isalive()
@@ -89,10 +93,11 @@ class LeanServer:
     def _execute_cmd_in_repl(self, json_query: str, verbose: bool, timeout: float | None) -> str:
         """Send JSON queries to the Lean REPL and wait for the standard delimiter."""
         assert self._proc is not None
-        if verbose:
-            logger.info("Sending query: %s", json_query)
-        self._proc.send(json_query + "\n\n")
-        self._proc.expect_exact("\r\n\r\n", timeout=timeout)
+        with self._lock:
+            if verbose:
+                logger.info("Sending query: %s", json_query)
+            self._proc.send(json_query + "\n\n")
+            self._proc.expect_exact("\r\n\r\n", timeout=timeout)
         return self._proc.before or ""
 
     def _parse_repl_output(self, raw_output: str, verbose: bool) -> dict:
@@ -166,6 +171,8 @@ class LeanServer:
         """
         Run a Lean REPL request.
 
+        Thread-safe: Uses a threading.Lock to ensure only one operation runs at a time.
+
         Args:
             request: The Lean REPL request to execute. Must be one of the following types:
                 - `Command`
@@ -196,6 +203,35 @@ class LeanServer:
             return ProofStepResponse.model_validate(result_dict)
         else:
             return BaseREPLResponse.model_validate(result_dict)
+
+    # Type hints for IDE and static analysis
+    @overload
+    async def async_run(
+        self,
+        request: Command | FileCommand | PickleEnvironment | UnpickleEnvironment,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+    ) -> CommandResponse | LeanError: ...
+
+    @overload
+    async def async_run(
+        self,
+        request: ProofStep | PickleProofState | UnpickleProofState,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+    ) -> ProofStepResponse | LeanError: ...
+
+    async def async_run(
+        self, request: BaseREPLQuery, *, verbose: bool = False, timeout: float | None = DEFAULT_TIMEOUT, **kwargs
+    ) -> BaseREPLResponse | LeanError:
+        """
+        Asynchronous version of run(). Runs the blocking run() in a thread pool.
+
+        Thread-safe: Uses a threading.Lock to ensure only one operation runs at a time.
+        """
+        return await asyncio.to_thread(self.run, request, verbose=verbose, timeout=timeout, **kwargs)  # type: ignore
 
 
 @dataclass
@@ -336,7 +372,7 @@ class AutoLeanServer(LeanServer):
         self._state_counter -= 1
         process_id = os.getpid()  # use process id to avoid conflicts in multiprocessing
         pickle_file = os.path.join(
-            self.config._working_dir,
+            self.config.working_dir,
             f"session_cache/{hashlib.sha256(hash_key.encode()).hexdigest()}_{process_id}.olean",
         )
         os.makedirs(os.path.dirname(pickle_file), exist_ok=True)
@@ -480,3 +516,43 @@ class AutoLeanServer(LeanServer):
             result = BaseREPLResponse.model_validate(result_dict)
 
         return result
+
+    # Type hints for IDE and static analysis
+    @overload
+    async def async_run(
+        self,
+        request: Command | FileCommand | PickleEnvironment | UnpickleEnvironment,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+        add_to_session_cache: bool = False,
+    ) -> CommandResponse | LeanError: ...
+
+    @overload
+    async def async_run(
+        self,
+        request: ProofStep | PickleProofState | UnpickleProofState,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+        add_to_session_cache: bool = False,
+    ) -> ProofStepResponse | LeanError: ...
+
+    async def async_run(
+        self,
+        request: BaseREPLQuery,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+        add_to_session_cache: bool = False,
+    ) -> BaseREPLResponse | LeanError:
+        """
+        Asynchronous version of run() for AutoLeanServer. Runs the blocking run() in a thread pool.
+        """
+        return await asyncio.to_thread(
+            self.run,
+            request,  # type: ignore
+            verbose=verbose,
+            timeout=timeout,
+            add_to_session_cache=add_to_session_cache,
+        )
