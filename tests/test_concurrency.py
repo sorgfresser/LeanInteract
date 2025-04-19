@@ -251,7 +251,6 @@ class TestAsyncRun(unittest.TestCase):
         self.assertIsInstance(results[1], CommandResponse)
         assert isinstance(results[1], CommandResponse)
         # Check that the second command correctly got the value 42
-        print(f"Messages: {[m.data for m in results[1].messages]}")
         self.assertTrue(any("42" in m.data for m in results[1].messages))
 
     def test_async_run_concurrent_state_modification_autoleansrv(self):
@@ -419,12 +418,10 @@ class TestAsyncRun(unittest.TestCase):
             self.assertIsInstance(result[0], CommandResponse)
 
         # Verify the definitions are accessible
-        print("hey")
         for i in range(num_threads):
             result, idx = results[i]
             eval_result = server.run(Command(cmd=f"#eval thread_test_{idx}", env=result.env))
             assert isinstance(eval_result, CommandResponse)
-            print(eval_result)
             self.assertTrue(any(msg.data == str(idx) for msg in eval_result.messages))
 
 
