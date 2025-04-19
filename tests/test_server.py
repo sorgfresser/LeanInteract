@@ -404,6 +404,23 @@ class TestLeanServer(unittest.TestCase):
         step2 = server.run(ProofStep(tactic="rfl", proof_state=step1.proof_state))
         self.assertEqual(step2, ProofStepResponse(proof_state=2, goals=[], proof_status="Completed"))
 
+    def test_infotree(self):
+        """Test infotree with all possible values"""
+        server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
+
+        # Test infotree with all possible values
+        for infotree_value in ["full", "tactics", "original", "substantive"]:
+            result = server.run(Command(cmd="theorem infotree_test : 0 = 0 := by rfl", infotree=infotree_value))
+            self.assertIsInstance(result, CommandResponse)
+            assert isinstance(result, CommandResponse)
+            self.assertIsNotNone(result.infotree)
+
+        # Test with an invalid infotree value
+        result = server.run(Command(cmd="theorem infotree_test : 0 = 0 := by rfl", infotree="invalid"))
+        self.assertIsInstance(result, CommandResponse)
+        assert isinstance(result, CommandResponse)
+        self.assertIsNone(result.infotree)
+
     def test_run_multiple_commands(self):
         # Test this issue: https://github.com/leanprover-community/repl/issues/77
         server = AutoLeanServer(config=LeanREPLConfig(memory_hard_limit_mb=4096, verbose=True))
