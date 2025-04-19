@@ -1,3 +1,4 @@
+import asyncio
 import gc
 import hashlib
 import json
@@ -196,6 +197,33 @@ class LeanServer:
             return ProofStepResponse.model_validate(result_dict)
         else:
             return BaseREPLResponse.model_validate(result_dict)
+
+    # Type hints for IDE and static analysis
+    @overload
+    async def async_run(
+        self,
+        request: Command | FileCommand | PickleEnvironment | UnpickleEnvironment,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+    ) -> CommandResponse | LeanError: ...
+
+    @overload
+    async def async_run(
+        self,
+        request: ProofStep | PickleProofState | UnpickleProofState,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+    ) -> ProofStepResponse | LeanError: ...
+
+    async def async_run(
+        self, request: BaseREPLQuery, *, verbose: bool = False, timeout: float | None = DEFAULT_TIMEOUT, **kwargs
+    ) -> BaseREPLResponse | LeanError:
+        """
+        Asynchronous version of run(). Runs the blocking run() in a thread pool.
+        """
+        return await asyncio.to_thread(self.run, request, verbose=verbose, timeout=timeout, **kwargs)  # type: ignore
 
 
 @dataclass
@@ -480,3 +508,43 @@ class AutoLeanServer(LeanServer):
             result = BaseREPLResponse.model_validate(result_dict)
 
         return result
+
+    # Type hints for IDE and static analysis
+    @overload
+    async def async_run(
+        self,
+        request: Command | FileCommand | PickleEnvironment | UnpickleEnvironment,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+        add_to_session_cache: bool = False,
+    ) -> CommandResponse | LeanError: ...
+
+    @overload
+    async def async_run(
+        self,
+        request: ProofStep | PickleProofState | UnpickleProofState,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+        add_to_session_cache: bool = False,
+    ) -> ProofStepResponse | LeanError: ...
+
+    async def async_run(
+        self,
+        request: BaseREPLQuery,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+        add_to_session_cache: bool = False,
+    ) -> BaseREPLResponse | LeanError:
+        """
+        Asynchronous version of run() for AutoLeanServer. Runs the blocking run() in a thread pool.
+        """
+        return await asyncio.to_thread(
+            self.run,
+            request,  # type: ignore
+            verbose=verbose,
+            timeout=timeout,
+            add_to_session_cache=add_to_session_cache,
+        )

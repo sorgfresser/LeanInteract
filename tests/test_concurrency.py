@@ -1,3 +1,4 @@
+import asyncio
 import multiprocessing as mp
 import os
 import shutil
@@ -10,7 +11,8 @@ from filelock import FileLock, Timeout
 
 from lean_interact import AutoLeanServer, LeanREPLConfig
 from lean_interact.config import BaseTempProject
-from lean_interact.interface import Command, CommandResponse
+from lean_interact.interface import Command, CommandResponse, Message
+from lean_interact.server import LeanServer
 from lean_interact.utils import DEFAULT_REPL_GIT_URL
 
 
@@ -157,6 +159,75 @@ class TestAutoLeanServerConcurrency(unittest.TestCase):
         self.assertTrue(all(success for (_, success, _) in results), f"Failures: {results}")
         env_ids = [env for (_, _, env) in results]
         self.assertEqual(len(env_ids), num_proc)
+
+
+class TestAsyncRun(unittest.TestCase):
+    """Tests for the async_run methods of LeanServer and AutoLeanServer, including concurrency."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.config = LeanREPLConfig(verbose=True)
+
+    def test_async_run_eval_leansrv(self):
+        server = LeanServer(self.config)
+        cmd = Command(cmd="#eval 1 + 1")
+        result = asyncio.run(server.async_run(cmd))
+        # Should be a CommandResponse and contain a message with '2'
+        self.assertIsInstance(result, CommandResponse)
+        assert isinstance(result, CommandResponse)
+        self.assertTrue(any("2" in m.data for m in result.messages))
+
+    def test_async_run_eval_autoleansrv(self):
+        server = AutoLeanServer(self.config)
+        cmd = Command(cmd="#eval 2 + 2")
+        result = asyncio.run(server.async_run(cmd))
+        self.assertIsInstance(result, CommandResponse)
+        assert isinstance(result, CommandResponse)
+        self.assertTrue(any("4" in m.data for m in result.messages))
+
+    def test_async_run_concurrent_multiple_servers(self):
+        n = 30
+        config = LeanREPLConfig(verbose=True)
+        servers = [AutoLeanServer(config) for _ in range(n)]
+        cmds = [Command(cmd=f"#eval {i} * {i}") for i in range(n)]
+
+        async def run_all():
+            tasks = [srv.async_run(cmd) for srv, cmd in zip(servers, cmds)]
+            return await asyncio.gather(*tasks)
+
+        results = asyncio.run(run_all())
+
+        # Collect expected outputs
+        expected_outputs = {str(i * i) for i in range(n)}
+        actual_outputs = set()
+        for result in results:
+            self.assertIsInstance(result, CommandResponse)
+            assert isinstance(result, CommandResponse)
+            for m in result.messages:
+                actual_outputs.add(m.data)
+        self.assertEqual(actual_outputs, expected_outputs)
+
+    def test_async_run_concurrent_autoleansrv(self):
+        n = 20
+        server = AutoLeanServer(self.config)
+        cmds = [Command(cmd=f"#eval {i} + {i}") for i in range(n)]
+
+        async def run_all():
+            tasks = [server.async_run(cmd) for cmd in cmds]
+            return await asyncio.gather(*tasks)
+
+        results = asyncio.run(run_all())
+
+        # Collect expected outputs
+        expected_outputs = {str(i + i) for i in range(n)}
+        actual_outputs = set()
+        for result in results:
+            self.assertIsInstance(result, CommandResponse)
+            assert isinstance(result, CommandResponse)
+            # Find all numbers in all messages
+            for m in result.messages:
+                actual_outputs.add(m.data)
+        self.assertEqual(actual_outputs, expected_outputs)
 
 
 if __name__ == "__main__":
