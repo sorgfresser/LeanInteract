@@ -135,7 +135,9 @@ class BaseTempProject(BaseProject):
                 logger.info("Preparing Lean environment with dependencies (may take a while the first time)...")
                 subprocess.run(["lake", "update"], cwd=tmp_project_dir, check=True, stdout=stdout, stderr=stderr)
                 # in case mathlib is used as a dependency, we try to get the cache
-                subprocess.run(["lake", "exe", "cache", "get"], cwd=tmp_project_dir, stdout=stdout, stderr=stderr)
+                subprocess.run(
+                    ["lake", "exe", "cache", "get"], cwd=tmp_project_dir, check=False, stdout=stdout, stderr=stderr
+                )
                 subprocess.run(["lake", "build"], cwd=tmp_project_dir, check=True, stdout=stdout, stderr=stderr)
 
     def _get_hash_content(self, lean_version: str) -> str:
@@ -159,7 +161,7 @@ class TemporaryProject(BaseTempProject):
 
     def _modify_lakefile(self, project_dir: str, lean_version: str) -> None:
         """Write the content to the lakefile."""
-        with open(os.path.join(project_dir, "lakefile.lean"), "w") as f:
+        with open(os.path.join(project_dir, "lakefile.lean"), "w", encoding="utf-8") as f:
             f.write(self.content)
 
 
@@ -191,7 +193,7 @@ class TempRequireProject(BaseTempProject):
     def _modify_lakefile(self, project_dir: str, lean_version: str) -> None:
         """Add requirements to the lakefile."""
         require = self._normalize_require(lean_version)
-        with open(os.path.join(project_dir, "lakefile.lean"), "a") as f:
+        with open(os.path.join(project_dir, "lakefile.lean"), "a", encoding="utf-8") as f:
             for req in require:
                 f.write(f'\n\nrequire {req.name} from git\n  "{req.git}"' + (f' @ "{req.rev}"' if req.rev else ""))
 
@@ -343,6 +345,16 @@ class LeanREPLConfig:
         Get the available Lean versions for the selected REPL.
         """
         return [commit[0] for commit in self._get_available_lean_versions_sha()]
+
+    @property
+    def working_dir(self) -> str:
+        """Get the working directory for the Lean environment."""
+        return self._working_dir
+
+    @property
+    def cache_repl_dir(self) -> str:
+        """Get the cache directory for the Lean REPL."""
+        return self._cache_repl_dir
 
     def is_setup(self) -> bool:
         return hasattr(self, "_working_dir")
