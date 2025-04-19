@@ -254,7 +254,7 @@ class CommandResponse(BaseREPLResponse):
 
     env: int
     tactics: list[Tactic] = Field(default_factory=list)
-    infotree: dict | None = None
+    infotree: list | None = None
 
 
 class ProofStepResponse(BaseREPLResponse):
