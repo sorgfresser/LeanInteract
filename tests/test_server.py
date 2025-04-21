@@ -1,4 +1,5 @@
 import os
+import platform
 import tempfile
 import time
 import unittest
@@ -7,7 +8,6 @@ from queue import Queue
 from threading import Thread
 from typing import cast
 
-import pexpect
 import psutil
 
 from lean_interact.config import (
@@ -15,6 +15,7 @@ from lean_interact.config import (
     LeanREPLConfig,
     LeanRequire,
     LocalProject,
+    TemporaryProject,
     TempRequireProject,
 )
 from lean_interact.interface import (
@@ -42,25 +43,30 @@ from lean_interact.server import (
 
 class TestLeanServer(unittest.TestCase):
     maxDiff = None
+    oldestVersion = "v4.8.0-rc1" if platform.system() == "Windows" else "v4.7.0"
 
     @classmethod
     def setUpClass(cls):
         # Pre-run configs for all available versions to get the cache
         lean_versions = LeanREPLConfig(verbose=True).get_available_lean_versions()
-        for version in ["v4.7.0", "v4.14.0", lean_versions[-1]]:
+        for version in [cls.oldestVersion, "v4.14.0", lean_versions[-1]]:
             LeanREPLConfig(lean_version=version, verbose=True)
 
+        # (Temporary) Skip mathlib setup on Windows to avoid long path issues in CI
+        if platform.system() == "Windows":
+            return
+
         # prepare Mathlib for the last version
-        LeanREPLConfig(lean_version="v4.7.0", project=TempRequireProject("mathlib"), verbose=True)
+        LeanREPLConfig(lean_version=cls.oldestVersion, project=TempRequireProject("mathlib"), verbose=True)
         LeanREPLConfig(lean_version=lean_versions[-1], project=TempRequireProject("mathlib"), verbose=True)
 
     def test_init_with_lean_version(self):
         lean_versions = LeanREPLConfig(verbose=True).get_available_lean_versions()
-        for version in ["v4.7.0", "v4.14.0", lean_versions[-1]]:
+        for version in [self.oldestVersion, "v4.14.0", lean_versions[-1]]:
             server = AutoLeanServer(config=LeanREPLConfig(lean_version=version, verbose=True))
             self.assertEqual(server.lean_version, version)
             self.assertEqual(
-                server.run(Command(cmd="#eval Lean.versionString")),
+                server.run(Command(cmd="#eval Lean.versionString"), verbose=True),
                 CommandResponse(
                     messages=[
                         Message(
@@ -75,6 +81,10 @@ class TestLeanServer(unittest.TestCase):
             )
 
     def test_init_with_require(self):
+        # (Temporary) Skip mathlib tests on Windows to avoid long path issues in CI
+        if platform.system() == "Windows":
+            self.skipTest("(Temporary) Skipping test on Windows due to long path issues in the CI")
+
         lean_versions = LeanREPLConfig(verbose=True).get_available_lean_versions()
         latest_version = lean_versions[-1]
         require = [
@@ -86,39 +96,68 @@ class TestLeanServer(unittest.TestCase):
         self.assertEqual(project._normalize_require(latest_version), require)
 
     def test_init_with_project_dir_fail(self):
-        project_dir = "/tmp/path/to/project"
-        with self.assertRaises(FileNotFoundError):
-            AutoLeanServer(LeanREPLConfig(project=LocalProject(project_dir), lean_version="v4.7.0", verbose=True))
+        project_dir = os.path.join("tmp", "path", "to", "project")
+        with self.assertRaises((FileNotFoundError, NotADirectoryError)):
+            AutoLeanServer(
+                LeanREPLConfig(project=LocalProject(project_dir), lean_version=self.oldestVersion, verbose=True)
+            )
 
     def test_init_with_project_dir(self):
+        # (Temporary) Skip mathlib tests on Windows to avoid long path issues in CI
+        if platform.system() == "Windows":
+            self.skipTest("(Temporary) Skipping test on Windows due to long path issues in the CI")
+
         base_config = LeanREPLConfig(project=TempRequireProject("mathlib"), verbose=True)
         new_config = LeanREPLConfig(project=LocalProject(base_config._working_dir), verbose=True)
         server = AutoLeanServer(new_config)
-        server.run(Command(cmd="#eval Lean.versionString"))
+        server.run(Command(cmd="#eval Lean.versionString"), verbose=True)
+
+    def test_temp_project_creation(self):
+        # Create a simple temporary project
+        temp_content = """
+import Lake
+open Lake DSL
+
+package "dummy" where
+  version := v!"0.1.0"
+
+@[default_target]
+lean_exe "dummy" where
+  root := `Main
+"""
+        project = TemporaryProject(temp_content)
+        config = LeanREPLConfig(lean_version="v4.14.0", project=project, verbose=True)
+        server = AutoLeanServer(config=config)
+        server.run(Command(cmd="#eval Lean.versionString"), verbose=True)
 
     def test_init_with_git_project(self):
+        if platform.system() == "Windows":
+            self.skipTest("(Temporary) Skipping test on Windows due to long path issues in the CI")
+
         git_url = "https://github.com/yangky11/lean4-example"
         config = LeanREPLConfig(project=GitProject(git_url), verbose=True)
         server = AutoLeanServer(config=config)
-        server.run(Command(cmd="#eval Lean.versionString"))
+        server.run(Command(cmd="#eval Lean.versionString"), verbose=True)
 
     def test_run_code_simple(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
-        result = server.run(Command(cmd="def x := 42"))
+        result = server.run(Command(cmd="def x := 42"), verbose=True)
         self.assertEqual(result, CommandResponse(env=0))
 
     def test_run_code_with_env(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
-        result1 = server.run(Command(cmd="def x := 1"), add_to_session_cache=True)
+        result1 = server.run(Command(cmd="def x := 1"), add_to_session_cache=True, verbose=True)
         self.assertEqual(result1, CommandResponse(env=-1))
         assert not isinstance(result1, LeanError)
         env_id = result1.env
-        result2 = server.run(Command(cmd="def y := x + 1", env=env_id))
+        result2 = server.run(Command(cmd="def y := x + 1", env=env_id), verbose=True)
         self.assertEqual(result2, CommandResponse(env=1))
 
     def test_run_tactic(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
-        result = server.run(Command(cmd="theorem zero_eq_zero : 0 = 0 := sorry"), add_to_session_cache=True)
+        result = server.run(
+            Command(cmd="theorem zero_eq_zero : 0 = 0 := sorry"), add_to_session_cache=True, verbose=True
+        )
         self.assertEqual(
             result,
             CommandResponse(
@@ -138,12 +177,12 @@ class TestLeanServer(unittest.TestCase):
                 ],
             ),
         )
-        tactic_result = server.run(ProofStep(tactic="rfl", proof_state=0))
+        tactic_result = server.run(ProofStep(tactic="rfl", proof_state=0), verbose=True)
         self.assertEqual(tactic_result, ProofStepResponse(proof_state=1, goals=[], proof_status="Completed"))
 
     def test_run_file_nonexistent(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
-        output = server.run(FileCommand(path="nonexistent_file.lean"))
+        output = server.run(FileCommand(path="nonexistent_file.lean"), verbose=True)
         self.assertEqual(
             output, LeanError(message="no such file or directory (error code: 2)\n  file: nonexistent_file.lean")
         )
@@ -163,7 +202,7 @@ class TestLeanServer(unittest.TestCase):
 
     def test_clear_session_cache(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
-        server.run(Command(cmd="def x := 1"), add_to_session_cache=True)
+        server.run(Command(cmd="def x := 1"), add_to_session_cache=True, verbose=True)
         server.clear_session_cache()
         self.assertEqual(len(server._restart_persistent_session_cache), 0)
 
@@ -173,7 +212,9 @@ class TestLeanServer(unittest.TestCase):
 
     def test_extremely_long_command(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
-        result = server.run(Command(cmd="def " + "a" * 10000 + " : 1 + 1 = 2 := sorry"), add_to_session_cache=True)
+        result = server.run(
+            Command(cmd="def " + "a" * 10000 + " : 1 + 1 = 2 := sorry"), add_to_session_cache=True, verbose=True
+        )
         self.assertEqual(
             result,
             CommandResponse(
@@ -196,12 +237,12 @@ class TestLeanServer(unittest.TestCase):
                 ],
             ),
         )
-        result = server.run(ProofStep(tactic="rfl", proof_state=0))
+        result = server.run(ProofStep(tactic="rfl", proof_state=0), verbose=True)
         self.assertEqual(result, ProofStepResponse(proof_state=1, goals=[], proof_status="Completed"))
 
     def test_lean_version(self):
         server = AutoLeanServer(config=LeanREPLConfig(lean_version="v4.14.0", verbose=True))
-        result = server.run(Command(cmd="#eval Lean.versionString"))
+        result = server.run(Command(cmd="#eval Lean.versionString"), verbose=True)
         self.assertEqual(
             result,
             CommandResponse(
@@ -218,8 +259,11 @@ class TestLeanServer(unittest.TestCase):
         )
 
     def test_mathlib(self):
+        if platform.system() == "Windows":
+            self.skipTest("(Temporary) Skipping test on Windows due to long path issues in the CI")
+
         server = AutoLeanServer(config=LeanREPLConfig(project=TempRequireProject("mathlib"), verbose=True))
-        result = server.run(Command(cmd="import Mathlib"), add_to_session_cache=True)
+        result = server.run(Command(cmd="import Mathlib"), add_to_session_cache=True, verbose=True)
         self.assertEqual(result, CommandResponse(env=-1))
         result = server.run(
             Command(
@@ -227,6 +271,7 @@ class TestLeanServer(unittest.TestCase):
                 env=-1,
             ),
             add_to_session_cache=True,
+            verbose=True,
         )
         self.assertEqual(
             result,
@@ -250,17 +295,17 @@ class TestLeanServer(unittest.TestCase):
                 ],
             ),
         )
-        result = server.run(ProofStep(tactic="apply irrational_add_rat_iff.mpr", proof_state=0))
+        result = server.run(ProofStep(tactic="apply irrational_add_rat_iff.mpr", proof_state=0), verbose=True)
         self.assertEqual(result, ProofStepResponse(proof_state=1, goals=[], proof_status="Completed"))
 
     def test_restart_with_env(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
-        result = server.run(Command(cmd="def x := 1"), add_to_session_cache=True)
+        result = server.run(Command(cmd="def x := 1"), add_to_session_cache=True, verbose=True)
         assert not isinstance(result, LeanError)
         env_id = result.env
         self.assertEqual(env_id, -1)
         server.restart()
-        result = server.run(Command(cmd="noncomputable def y := x + 1", env=env_id))
+        result = server.run(Command(cmd="noncomputable def y := x + 1", env=env_id), verbose=True)
         self.assertEqual(result, CommandResponse(env=1))
         self.assertEqual(list(server._restart_persistent_session_cache.keys()), [env_id])
 
@@ -271,7 +316,7 @@ class TestLeanServer(unittest.TestCase):
             mock_virtual_memory.return_value.percent = 99.0
             with unittest.mock.patch("time.sleep", return_value=None):
                 with self.assertRaises(MemoryError):
-                    server.run(Command(cmd="test"), verbose=False)
+                    server.run(Command(cmd="test"), verbose=True)
         self.assertFalse(server.is_alive())
 
     @unittest.mock.patch("lean_interact.server.LeanServer.run_dict")
@@ -305,7 +350,7 @@ class TestLeanServer(unittest.TestCase):
         server.kill()
         self.assertFalse(server.is_alive())
         mock_virtual_memory.return_value.percent = 0.0
-        server.run(Command(cmd="test"), verbose=False)
+        server.run(Command(cmd="test"), verbose=True)
         self.assertTrue(server.is_alive())
 
     @unittest.mock.patch("lean_interact.server.LeanServer.run_dict")
@@ -315,7 +360,7 @@ class TestLeanServer(unittest.TestCase):
 
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         with self.assertRaises(TimeoutError):
-            server.run(Command(cmd="test"), timeout=1)
+            server.run(Command(cmd="test"), timeout=1, verbose=True)
 
         # Verify that the server did not attempt to restart
         self.assertTrue(server.is_alive())
@@ -345,7 +390,7 @@ class TestLeanServer(unittest.TestCase):
             config=LeanREPLConfig(), max_total_memory=0.8, max_restart_attempts=max_restart_attempts
         )
         with self.assertRaises(MemoryError):
-            server.run(Command(cmd="test"))
+            server.run(Command(cmd="test"), verbose=True)
 
         # Verify that the server is not alive after exceeding max restart attempts
         self.assertFalse(server.is_alive())
@@ -353,38 +398,28 @@ class TestLeanServer(unittest.TestCase):
     def test_autoleanserver_recovery_after_timeout(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
-        # Mock the expect_exact method to raise a timeout exception
-        def raise_timeout_error(*args, **kwargs):
-            raise pexpect.exceptions.TIMEOUT("")
-
-        with unittest.mock.patch.object(server._proc, "expect_exact", side_effect=raise_timeout_error):
-            with self.assertRaises(TimeoutError):
-                server.run(Command(cmd="def x := y"))
+        with self.assertRaises(TimeoutError):
+            server.run(Command(cmd="def x := y"), verbose=True, timeout=0)
 
         # Send a new command to verify auto-recovery
-        result = server.run(Command(cmd="def z := 3"))
+        result = server.run(Command(cmd="def z := 3"), verbose=True)
         self.assertEqual(result, CommandResponse(env=0))
 
     def test_leanserver_killed_after_timeout(self):
         server = LeanServer(config=LeanREPLConfig(verbose=True))
 
-        # Mock the expect_exact method to raise a timeout exception
-        def raise_timeout_error(*args, **kwargs):
-            raise pexpect.exceptions.TIMEOUT("")
-
-        with unittest.mock.patch.object(server._proc, "expect_exact", side_effect=raise_timeout_error):
-            with self.assertRaises(TimeoutError):
-                server.run(Command(cmd="def a := b"))
+        with self.assertRaises(TimeoutError):
+            server.run(Command(cmd="def a := b"), verbose=True, timeout=0)
 
         # Ensure the server is killed after the timeout
-        # self.assertFalse(server.is_alive())
+        self.assertFalse(server.is_alive())
         with self.assertRaises(ChildProcessError):
-            server.run(Command(cmd="def z := 3"))
+            server.run(Command(cmd="def z := 3"), verbose=True)
 
     # def test_run_proof(self):
     #     server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
     #     result = server.run(
-    #         Command(cmd="theorem test_run_proof : (x : Nat) -> x = x := sorry", add_to_session_cache=True)
+    #         Command(cmd="theorem test_run_proof : (x : Nat) -> x = x := sorry", add_to_session_cache=True, verbose=True)
     #     )
     #     self.assertEqual(result.get("env"), -1)
 
@@ -394,14 +429,16 @@ class TestLeanServer(unittest.TestCase):
     def test_run_proof_equivalence(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         result = server.run(
-            Command(cmd="theorem test_run_proof_seq : (x : Nat) -> x = x := sorry"), add_to_session_cache=True
+            Command(cmd="theorem test_run_proof_seq : (x : Nat) -> x = x := sorry"),
+            add_to_session_cache=True,
+            verbose=True,
         )
         assert not isinstance(result, LeanError)
         self.assertEqual(result.env, -1)
 
-        step1 = server.run(ProofStep(tactic="intro x", proof_state=0))
+        step1 = server.run(ProofStep(tactic="intro x", proof_state=0), verbose=True)
         assert not isinstance(step1, LeanError)
-        step2 = server.run(ProofStep(tactic="rfl", proof_state=step1.proof_state))
+        step2 = server.run(ProofStep(tactic="rfl", proof_state=step1.proof_state), verbose=True)
         self.assertEqual(step2, ProofStepResponse(proof_state=2, goals=[], proof_status="Completed"))
 
     def test_infotree(self):
@@ -422,6 +459,9 @@ class TestLeanServer(unittest.TestCase):
         self.assertIsNone(result.infotree)
 
     def test_run_multiple_commands(self):
+        if platform.system() != "Linux":
+            self.skipTest("This test is only relevant on Linux")
+
         # Test this issue: https://github.com/leanprover-community/repl/issues/77
         server = AutoLeanServer(config=LeanREPLConfig(memory_hard_limit_mb=4096, verbose=True))
 
@@ -434,7 +474,7 @@ class TestLeanServer(unittest.TestCase):
         # Test this issue: https://github.com/leanprover-community/repl/issues/77
         server = LeanServer(LeanREPLConfig(verbose=True))
 
-        init_env = server.run(Command(cmd="#eval 1"))
+        init_env = server.run(Command(cmd="#eval 1"), verbose=True)
         assert not isinstance(init_env, LeanError)
         for i in range(1000):
             cmd = Command(
@@ -444,13 +484,15 @@ class TestLeanServer(unittest.TestCase):
             self.assertIsInstance(result, CommandResponse)
 
     def test_bug_increasing_memory(self):
+        if platform.system() != "Linux":
+            self.skipTest("This test is only relevant on Linux")
+
         mem_limit = 512
         server = AutoLeanServer(config=LeanREPLConfig(memory_hard_limit_mb=mem_limit, verbose=True))
 
         # Get initial memory usage
         assert server._proc is not None
         server_process = psutil.Process(server._proc.pid)
-        time.sleep(1)  # Give the process time to start
         start_mem = server_process.memory_info().rss / (1024 * 1024)  # Convert to MB
 
         # Run code in separate thread to allow memory monitoring
@@ -464,6 +506,7 @@ class TestLeanServer(unittest.TestCase):
                         cmd="theorem dummy {x : ∀ α, X α} {ι : Type _} {x₁ : ι → ∀ α, X α} {x₂ : ι → ∀ α, X α} (x₃ : ι → ∀ α, X α) {x₄ : ι → ∀ α, X α} {x₅ : ι → ∀ α, X α} {x₆ : ι → ∀ α, X α} {x₇ : ι → ∀ α, X α} {x₈ : ι → ∀ α, X α} {x₉ : ι → ∀ α, X α} {x₀ : ι → ∀ α, X α} {x₁₀ : ι → ∀ α, X α} {x₁₁ : ι → ∀ α, X α} {x₁₂ : ι → ∀ α, X α} (x₁₃ : ι → ∀ α, X α) (x₁₄ : ι → ∀ α, X α) (x₁₅ : ι → ∀ α, X α) {x₁₆ : ι → ∀ α, X α} {x₁₇ : ι → ∀ α, X α} {x₁₈ : ι → ∀ α, X α} {x₁₉ : ι → ∀ α, X α} {x₂₀ : ι → ∀ α, X α} (x₂₁ : ι → ∀ α, X α) (x₂₂ : ι → ∀ α, X α) (x₂₃ : ι → ∀ α, X α) (x₂₄ : ι → ∀ α, X α) (x₂₅ : ι → ∀ α, X α) (x₂₆ : ι → ∀ α, X α) (x₂₇ : ι → ∀ α, X α) (x₂₈ : ι → ∀ α, X α) (x₂₉ : ι → ∀ α, X α) (x₃₀ : ι → ∀ α, X α) {x₃₁ : ι → ∀ α, X α} {x₃₂ : ι → ∀ α, X α} (x₃₃ : ι → ∀ α, X α) (x₃₄ : ι → ∀ α, X α) (x₃₅ : ι → ∀ α, X α) (x₃ sorry",
                     ),
                     timeout=10,
+                    verbose=True,
                 )
                 result_queue.put(("success", result))
             except TimeoutError as e:
@@ -502,32 +545,33 @@ class TestLeanServer(unittest.TestCase):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
         # Create an environment with a definition
-        result = server.run(Command(cmd="def x := 42"), add_to_session_cache=True)
+        result = server.run(Command(cmd="def x := 42"), add_to_session_cache=True, verbose=True)
         self.assertEqual(result, CommandResponse(env=-1))
         assert isinstance(result, CommandResponse)
         env_id = result.env
 
         # Pickle the environment
-        temp_pickle_file = tempfile.mkstemp(suffix=".olean")[1]
-        pickle_result = server.run(PickleEnvironment(env=env_id, pickle_to=temp_pickle_file))
+        temp_pickle_file = tempfile.NamedTemporaryFile(suffix=".olean", delete=False).name
+
+        pickle_result = server.run(PickleEnvironment(env=env_id, pickle_to=temp_pickle_file), verbose=True)
         self.assertIsInstance(pickle_result, CommandResponse)
 
         # Create a new server
         new_server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
         # Unpickle the environment in the new server
-        unpickle_result = new_server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle_file))
+        unpickle_result = new_server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle_file), verbose=True)
         assert isinstance(unpickle_result, CommandResponse)
         unpickled_env_id = unpickle_result.env
 
         # TODO: there is a bug with the REPL pickling process which transforms `def` into `noncomputable def`
 
         # Test that the unpickled environment contains the original definition
-        result = new_server.run(Command(cmd="noncomputable def y := x + 1", env=unpickled_env_id))
+        result = new_server.run(Command(cmd="noncomputable def y := x + 1", env=unpickled_env_id), verbose=True)
         self.assertEqual(result, CommandResponse(env=1))
 
         # # Test evaluation works with the unpickled environment
-        # eval_result = new_server.run(Command(cmd="#eval x", env=1))
+        # eval_result = new_server.run(Command(cmd="#eval x", env=1), verbose=True)
         # assert isinstance(eval_result, CommandResponse)
         # self.assertIn(
         #     Message(
@@ -540,41 +584,54 @@ class TestLeanServer(unittest.TestCase):
         # )
 
         # delete the temp file
-        os.remove(temp_pickle_file)
+        try:
+            os.remove(temp_pickle_file)
+        except (FileNotFoundError, PermissionError):
+            pass
 
     def test_pickle_unpickle_proof_state(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
         # Create a theorem with a proof state
-        result = server.run(Command(cmd="theorem test_pickle : 0 = 0 := sorry"), add_to_session_cache=True)
+        result = server.run(
+            Command(cmd="theorem test_pickle : 0 = 0 := sorry"), add_to_session_cache=True, verbose=True
+        )
         assert isinstance(result, CommandResponse)
         self.assertEqual(len(result.sorries), 1)
         proof_state_id = result.sorries[0].proof_state
         assert isinstance(proof_state_id, int)
 
         # Pickle the proof state
-        temp_pickle_file = tempfile.mkstemp(suffix=".olean")[1]
-        pickle_result = server.run(PickleProofState(proof_state=proof_state_id, pickle_to=temp_pickle_file))
+        temp_pickle_file = tempfile.NamedTemporaryFile(suffix=".olean", delete=False).name
+        pickle_result = server.run(
+            PickleProofState(proof_state=proof_state_id, pickle_to=temp_pickle_file), verbose=True
+        )
         self.assertIsInstance(pickle_result, ProofStepResponse)
 
         # Create a new server
         new_server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
         # Unpickle the proof state in the new server
-        unpickle_result = new_server.run(UnpickleProofState(unpickle_proof_state_from=temp_pickle_file))
+        unpickle_result = new_server.run(UnpickleProofState(unpickle_proof_state_from=temp_pickle_file), verbose=True)
         assert isinstance(unpickle_result, ProofStepResponse)
         unpickled_proof_state_id = unpickle_result.proof_state
 
         # Test that we can continue the proof from the unpickled proof state
-        tactic_result = new_server.run(ProofStep(tactic="rfl", proof_state=unpickled_proof_state_id))
+        tactic_result = new_server.run(ProofStep(tactic="rfl", proof_state=unpickled_proof_state_id), verbose=True)
         self.assertEqual(tactic_result, ProofStepResponse(proof_state=1, goals=[], proof_status="Completed"))
+
+        # Delete the temp file
+        try:
+            os.remove(temp_pickle_file)
+        except (FileNotFoundError, PermissionError):
+            pass
 
     def test_pickle_fails_with_invalid_env(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
         # Try to pickle a non-existent environment
-        temp_pickle_file = tempfile.mkstemp(suffix=".olean")[1]
-        result = server.run(PickleEnvironment(env=999, pickle_to=temp_pickle_file))
+        temp_pickle_file = tempfile.NamedTemporaryFile(suffix=".olean", delete=False).name
+        result = server.run(PickleEnvironment(env=999, pickle_to=temp_pickle_file), verbose=True)
         assert isinstance(result, LeanError)
         self.assertEqual("unknown environment.", result.message.lower())
 
@@ -583,25 +640,26 @@ class TestLeanServer(unittest.TestCase):
 
     def test_unpickle_fails_with_invalid_data(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
-        print("Unpickle test")
         # Try to unpickle invalid data
-        temp_pickle_file = tempfile.mkstemp(suffix=".olean")[1]
+        temp_pickle_file = tempfile.NamedTemporaryFile(suffix=".olean", delete=False).name
 
         # Try to unpickle invalid data
         with self.assertRaises(ConnectionAbortedError):
-            server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle_file))
+            server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle_file), verbose=True)
         with self.assertRaises(ConnectionAbortedError):
-            server.run(UnpickleProofState(unpickle_proof_state_from=temp_pickle_file))
+            server.run(UnpickleProofState(unpickle_proof_state_from=temp_pickle_file), verbose=True)
 
         # delete the temp file
-        os.remove(temp_pickle_file)
+        try:
+            os.remove(temp_pickle_file)
+        except (FileNotFoundError, PermissionError):
+            pass
 
     def test_pickle_unpickle_with_complex_environment(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
         # Create a more complex environment with multiple definitions and imports
         cmds = [
-            "import Lean",
             "def add_one (n : Nat) : Nat := n + 1",
             "def double (n : Nat) : Nat := n * 2",
             "def compute (n : Nat) : Nat := double (add_one n)",
@@ -609,13 +667,13 @@ class TestLeanServer(unittest.TestCase):
 
         env_id = None
         for cmd in cmds:
-            result = server.run(Command(cmd=cmd, env=env_id), add_to_session_cache=True)
+            result = server.run(Command(cmd=cmd, env=env_id), add_to_session_cache=True, verbose=True)
             assert isinstance(result, CommandResponse)
             env_id = result.env
         assert env_id is not None
 
         # Verify the environment works
-        eval_result = server.run(Command(cmd="#eval compute 5", env=env_id))
+        eval_result = server.run(Command(cmd="#eval compute 5", env=env_id), verbose=True)
         assert isinstance(eval_result, CommandResponse)
         self.assertIn(
             Message(
@@ -628,20 +686,20 @@ class TestLeanServer(unittest.TestCase):
         )
 
         # Pickle the environment
-        temp_pickle_file = tempfile.mkstemp(suffix=".olean")[1]
-        pickle_result = server.run(PickleEnvironment(env=env_id, pickle_to=temp_pickle_file))
+        temp_pickle_file = tempfile.NamedTemporaryFile(suffix=".olean", delete=False).name
+        pickle_result = server.run(PickleEnvironment(env=env_id, pickle_to=temp_pickle_file), verbose=True)
         self.assertIsInstance(pickle_result, CommandResponse)
 
         # Create a new server and unpickle
         new_server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
-        unpickle_result = new_server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle_file))
+        unpickle_result = new_server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle_file), verbose=True)
         assert isinstance(unpickle_result, CommandResponse)
         unpickled_env_id = unpickle_result.env
 
         # TODO: there is a bug with the REPL pickling process which transforms `def` into `noncomputable def`
 
         # # Test that the functions still work in the unpickled environment
-        # eval_result = new_server.run(Command(cmd="#eval compute 10", env=unpickled_env_id))
+        # eval_result = new_server.run(Command(cmd="#eval compute 10", env=unpickled_env_id), verbose=True)
         # assert isinstance(eval_result, CommandResponse)
         # self.assertIn(
         #     Message(
@@ -654,7 +712,10 @@ class TestLeanServer(unittest.TestCase):
         # )
 
         # delete the temp file
-        os.remove(temp_pickle_file)
+        try:
+            os.remove(temp_pickle_file)
+        except (FileNotFoundError, PermissionError):
+            pass
 
 
 if __name__ == "__main__":

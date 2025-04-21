@@ -1,6 +1,7 @@
 # LeanInteract
 
-[![PyPI version](https://badge.fury.io/py/lean-interact.svg)](https://badge.fury.io/py/lean-interact)
+[![PyPI version](https://img.shields.io/pypi/v/lean-interact.svg)](https://pypi.org/project/lean-interact/)
+[![PyPI downloads](https://img.shields.io/pepy/dt/lean-interact.svg)](https://pypi.org/project/lean-interact/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -10,6 +11,7 @@
 
 - **🔗 Interactivity**: Execute Lean code and files directly from Python.
 - **🚀 Ease of Use**: LeanInteract abstracts the complexities of Lean setup and interaction.
+- **💻 Cross-platform**: Works on Windows, macOS, and Linux operating systems.
 - **🔧 Compatibility**: Supports all Lean versions between `v4.7.0-rc1` and `v4.19.0-rc2`.
   - We backport the latest features of Lean REPL to older versions of Lean.
 - **📦 Temporary Projects**: Easily instantiate temporary Lean environments.
@@ -441,6 +443,22 @@ Common issues and their solutions:
 2. **Timeout errors**: Currently, `LeanServer` simply stops the Lean REPL if a command times out. Use `AutoLeanServer` for automatic recovery.
 
 3. **Long waiting times during first run**: This is expected as Lean REPL is being downloaded and built. Additionally, if you are importing Mathlib it will take even more time. Subsequent runs will be much faster.
+
+4. **(Windows) Path too long error**: Windows has a maximum path length limitation of 260 characters.
+If you get an error similar to the following one, you are likely affected by this problem:
+
+    ```
+    error: external command 'git' exited with code 128
+    ERROR    Failed during Lean project setup: Command '['lake', 'update']' returned non-zero exit status 1.
+    ```
+
+    To resolve this, you can enable long paths in Windows 10 and later versions. For more information, refer to the [Microsoft documentation](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation).
+    Alternatively, run the following command in a terminal with administrator privileges:
+
+    ```bash
+    New-ItemProperty -Path "HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem" -Name LongPathsEnabled -Value 1 -PropertyType DWord -Force
+    git config --system core.longpaths true
+    ```
 
 ## Contributing
 
