@@ -156,14 +156,14 @@ def beql(
         except ValueError:
             if verbose:
                 console.print("Invalid theorems encountered, skipping this pair.")
-            continue
+            break
 
         formal_code = formal_1_code + formal_2_code
         # Preliminary check to ensure the formalization is well-typed.
         if check_proof_sub(server, formal_code, context_env, formal_2_start_line, "sorry", timeout_per_proof) is None:
             if verbose:
                 console.print("Ill-typed formalization encountered, skipping this pair.")
-            continue
+            break
 
         proof_exact = check_proof_sub(
             server, formal_code, context_env, formal_2_start_line, "exact?", timeout_per_proof
@@ -173,6 +173,8 @@ def beql(
             if verbose:
                 console.print("Proof exact")
                 console.print(Syntax(proof_exact, "lean4"))
+        else:
+            break
 
     return res[0] and res[1]
 
@@ -229,13 +231,13 @@ def beq_plus(
         except ValueError:
             if verbose:
                 console.print("Invalid theorem encountered, skipping this pair.")
-            continue
+            break
 
         formal_code = formal_1_code + formal_2_code
         if check_proof_sub(server, formal_code, context_env, formal_2_start_line, "sorry", timeout_per_proof) is None:
             if verbose:
                 console.print("Ill-typed formalization encountered, skipping this pair.")
-            continue
+            break
 
         # 1. Use BEqL
         proof_exact = check_proof_sub(
@@ -322,6 +324,9 @@ def beq_plus(
                     console.print(Syntax(proof_convert, "lean4"))
                 break
 
+        if not res[i]:
+            break
+
     return res[0] and res[1]
 
 
@@ -382,22 +387,35 @@ open scoped BigOperators"""
     ]
 
     console.print(f"{metric.__name__} metric on examples:")
+    counter_equivalent = 0
     for formalization_1, formalization_2 in formalization_pairs:
         console.print()
         console.rule()
         console.print("Comparing formalizations:")
         console.print(Syntax(formalization_1, "lean4"))
         console.print(Syntax(formalization_2, "lean4"))
-        console.print(
-            f"Proved equivalent: {metric(formalization_1, formalization_2, src_header, repl_config, timeout_per_proof=DEFAULT_TIMEOUT, verbose=True)}"
+        equivalent = metric(
+            formalization_1,
+            formalization_2,
+            src_header,
+            repl_config,
+            timeout_per_proof=DEFAULT_TIMEOUT,
+            verbose=True,
         )
+        counter_equivalent += equivalent
+        if equivalent:
+            console.print("[green]Proved equivalent[/]")
+        else:
+            console.print("[red]Equivalence not proven[/]")
+    console.print()
+    console.print(f"Total proved equivalent: {counter_equivalent}/{len(formalization_pairs)}")
 
 
-def proofnetverif(metric):
+def proofnetverif(metric, n_samples=100):
     repl_config = LeanREPLConfig(lean_version="v4.8.0", project=TempRequireProject("mathlib"), verbose=True)
 
     dataset = load_dataset("PAug/ProofNetVerif", split="valid")
-    dataset = dataset.shuffle(seed=42).select(range(100))
+    dataset = dataset.shuffle(seed=42).select(range(n_samples))
 
     metric_results = []
     for example in tqdm(dataset, desc=f"`{metric.__name__}` metric on ProofNetVerif dataset"):
