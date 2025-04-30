@@ -20,7 +20,7 @@ logger.addHandler(handler)
 ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
 DEFAULT_CACHE_DIR = os.path.join(ROOT_DIR, "cache")
 DEFAULT_REPL_GIT_URL = "https://github.com/augustepoiroux/repl"
-DEFAULT_REPL_VERSION = "v1.0.6"
+DEFAULT_REPL_VERSION = "v1.0.7"
 
 os.makedirs(DEFAULT_CACHE_DIR, exist_ok=True)
 
@@ -334,7 +334,7 @@ def clean_theorem_string(theorem_string: str, new_theorem_name: str = "dummy", a
             clean_formal = re.sub(r"^[^\s:({\[]+", "", clean_formal).strip()
         clean_formal = f"theorem {new_theorem_name} " + clean_formal
         if add_sorry:
-            clean_formal += " := sorry"
+            clean_formal += " := by sorry"
         return clean_formal
     except Exception:
         return None
