@@ -71,6 +71,7 @@ class LeanServer:
             encoding="utf-8",
             text=True,
             bufsize=1,
+            start_new_session=True,
             preexec_fn=None
             if platform.system() != "Linux"
             else lambda: _limit_memory(self.config.memory_hard_limit_mb),
@@ -86,15 +87,24 @@ class LeanServer:
 
     def kill(self) -> None:
         if self._proc:
-            # Close file handles before killing the process
-            if self._proc.stdin:
-                self._proc.stdin.close()
-            if self._proc.stdout:
-                self._proc.stdout.close()
-            if self._proc.stderr:
-                self._proc.stderr.close()
-            self._proc.kill()
-            self._proc.wait()
+            try:
+                proc = psutil.Process(self._proc.pid)
+                # Terminate the process tree
+                children = proc.children(recursive=True)
+                for child in children:
+                    try:
+                        child.terminate()
+                    except Exception:
+                        pass
+                proc.terminate()
+                _, alive = psutil.wait_procs([proc] + children, timeout=1)
+                for p in alive:
+                    try:
+                        p.kill()
+                    except Exception:
+                        pass
+            except Exception:
+                pass
             self._proc = None
         gc.collect()
 
