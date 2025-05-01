@@ -295,7 +295,7 @@ lean_exe "dummy" where
                 ],
             ),
         )
-        result = server.run(ProofStep(tactic="apply irrational_add_rat_iff.mpr", proof_state=0), verbose=True)
+        result = server.run(ProofStep(tactic="apply irrational_add_ratCast_iff.mpr", proof_state=0), verbose=True)
         self.assertEqual(result, ProofStepResponse(proof_state=1, goals=[], proof_status="Completed"))
 
     def test_restart_with_env(self):
