@@ -47,6 +47,7 @@ class LocalProject(BaseProject):
     """Use an existing local Lean project directory"""
 
     directory: str
+    build: bool = True
 
     def _get_directory(self, cache_dir: str, lean_version: str | None = None) -> str:
         """Get the project directory."""
@@ -54,6 +55,8 @@ class LocalProject(BaseProject):
 
     def _instantiate(self, cache_dir: str, lean_version: str, verbose: bool = True):
         """Instantiate the local project."""
+        if not self.build:
+            return
         stdout = None if verbose else subprocess.DEVNULL
         stderr = None if verbose else subprocess.DEVNULL
 

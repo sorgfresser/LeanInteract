@@ -111,6 +111,12 @@ class TestLeanServer(unittest.TestCase):
         new_config = LeanREPLConfig(project=LocalProject(base_config._working_dir), verbose=True)
         server = AutoLeanServer(new_config)
         server.run(Command(cmd="#eval Lean.versionString"), verbose=True)
+        # Re-use the existing build
+        with unittest.mock.patch("subprocess.run") as run_mock:
+            new_config = LeanREPLConfig(project=LocalProject(base_config._working_dir, build=False), verbose=True)
+            server = AutoLeanServer(new_config)
+            server.run(Command(cmd="#eval Lean.versionString"), verbose=True)
+            run_mock.assert_not_called()
 
     def test_temp_project_creation(self):
         # Create a simple temporary project
