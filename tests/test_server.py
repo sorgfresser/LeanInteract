@@ -110,13 +110,15 @@ class TestLeanServer(unittest.TestCase):
         base_config = LeanREPLConfig(project=TempRequireProject("mathlib"), verbose=True)
         new_config = LeanREPLConfig(project=LocalProject(base_config._working_dir), verbose=True)
         server = AutoLeanServer(new_config)
-        server.run(Command(cmd="#eval Lean.versionString"), verbose=True)
+        response = server.run(Command(cmd="#eval Lean.versionString"), verbose=True)
+        self.assertIsInstance(response, CommandResponse)
         # Re-use the existing build
         with unittest.mock.patch("subprocess.run") as run_mock:
             new_config = LeanREPLConfig(project=LocalProject(base_config._working_dir, build=False), verbose=True)
+            run_mock.assert_called_once()  # it should be called only once (to build the REPL, but not the local project)
             server = AutoLeanServer(new_config)
-            server.run(Command(cmd="#eval Lean.versionString"), verbose=True)
-            run_mock.assert_not_called()
+            response = server.run(Command(cmd="#eval Lean.versionString"), verbose=True)
+            self.assertIsInstance(response, CommandResponse)
 
     def test_temp_project_creation(self):
         # Create a simple temporary project
