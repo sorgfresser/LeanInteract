@@ -47,6 +47,7 @@ class LocalProject(BaseProject):
     """Use an existing local Lean project directory"""
 
     directory: str
+    build: bool = True
 
     def _get_directory(self, cache_dir: str, lean_version: str | None = None) -> str:
         """Get the project directory."""
@@ -54,12 +55,16 @@ class LocalProject(BaseProject):
 
     def _instantiate(self, cache_dir: str, lean_version: str, verbose: bool = True):
         """Instantiate the local project."""
+        if not self.build:
+            return
         stdout = None if verbose else subprocess.DEVNULL
         stderr = None if verbose else subprocess.DEVNULL
 
         with FileLock(f"{self.directory}.lock"):
             try:
-                subprocess.run(["lake", "exe", "cache", "get"], cwd=self.directory, check=False, stdout=stdout, stderr=stderr)
+                subprocess.run(
+                    ["lake", "exe", "cache", "get"], cwd=self.directory, check=False, stdout=stdout, stderr=stderr
+                )
                 subprocess.run(["lake", "build"], cwd=self.directory, check=True, stdout=stdout, stderr=stderr)
             except subprocess.CalledProcessError as e:
                 logger.error("Failed to build local project: %s", e)
@@ -103,7 +108,9 @@ class GitProject(BaseProject):
             repo.submodule_update(init=True, recursive=True)
 
             try:
-                subprocess.run(["lake", "exe", "cache", "get"], cwd=project_dir, check=False, stdout=stdout, stderr=stderr)
+                subprocess.run(
+                    ["lake", "exe", "cache", "get"], cwd=project_dir, check=False, stdout=stdout, stderr=stderr
+                )
                 subprocess.run(["lake", "build"], cwd=project_dir, check=True, stdout=stdout, stderr=stderr)
             except subprocess.CalledProcessError as e:
                 logger.error("Failed to build the git project: %s", e)
