@@ -238,7 +238,11 @@ class BaseREPLResponse(REPLBaseModel):
             for message in self.messages
             if message_intersects_code(message, start_pos, end_pos) and message.severity == "error"
         ]
-        sorries = [message for message in self.sorries if message_intersects_code(message, start_pos, end_pos)]
+        sorries = [message for message in self.sorries if message_intersects_code(message, start_pos, end_pos)] + [
+            message
+            for message in self.messages
+            if message_intersects_code(message, start_pos, end_pos) and message.data == "declaration uses 'sorry'"
+        ]
         return not errors and (allow_sorry or not sorries)
 
 
