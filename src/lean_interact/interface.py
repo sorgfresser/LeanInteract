@@ -119,6 +119,11 @@ class UnpickleProofState(BaseREPLQuery):
     env: int | None = None
 
 
+class GetDeclType(BaseREPLQuery):
+    decl: str
+    env: int | None = None
+
+
 # Intermediate classes
 
 
@@ -276,6 +281,10 @@ class ProofStepResponse(BaseREPLResponse):
     proof_state: Annotated[int, Field(alias="proofState")]
     goals: list[str] = Field(default_factory=list)
     traces: list[str] = Field(default_factory=list)
+
+
+class DeclTypeResponse(BaseREPLResponse):
+    types: list[str] = Field(default_factory=list)
 
 
 class LeanError(REPLBaseModel):

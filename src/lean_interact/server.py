@@ -28,6 +28,8 @@ from lean_interact.interface import (
     ProofStepResponse,
     UnpickleEnvironment,
     UnpickleProofState,
+    GetDeclType,
+    DeclTypeResponse
 )
 from lean_interact.utils import _limit_memory, get_total_memory_usage, logger
 
@@ -209,6 +211,16 @@ class LeanServer:
         timeout: float | None = DEFAULT_TIMEOUT,
     ) -> ProofStepResponse | LeanError: ...
 
+    @overload
+    def run(
+        self,
+        request: GetDeclType,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+        add_to_session_cache: bool = False,
+    ) -> DeclTypeResponse | LeanError: ...
+
     def run(
         self, request: BaseREPLQuery, *, verbose: bool = False, timeout: float | None = DEFAULT_TIMEOUT, **kwargs
     ) -> BaseREPLResponse | LeanError:
@@ -245,6 +257,8 @@ class LeanServer:
             return CommandResponse.model_validate(result_dict)
         elif isinstance(request, (ProofStep, PickleProofState, UnpickleProofState)):
             return ProofStepResponse.model_validate(result_dict)
+        elif isinstance(request, DeclTypeResponse):
+            return DeclTypeResponse.model_validate(result_dict)
         else:
             return BaseREPLResponse.model_validate(result_dict)
 
@@ -504,6 +518,16 @@ class AutoLeanServer(LeanServer):
         add_to_session_cache: bool = False,
     ) -> ProofStepResponse | LeanError: ...
 
+    @overload
+    def run(
+        self,
+        request: GetDeclType,
+        *,
+        verbose: bool = False,
+        timeout: float | None = DEFAULT_TIMEOUT,
+        add_to_session_cache: bool = False,
+    ) -> DeclTypeResponse | LeanError: ...
+
     def run(
         self,
         request: BaseREPLQuery,
@@ -556,6 +580,8 @@ class AutoLeanServer(LeanServer):
                     hash_key=hash_key, repl_id=proof_state_id, is_proof_state=True, verbose=verbose
                 )
                 result = result.model_copy(update={"proofState": new_proof_state_id})
+        elif isinstance(request, GetDeclType):
+            result = DeclTypeResponse.model_validate(result_dict)
         else:
             result = BaseREPLResponse.model_validate(result_dict)
 

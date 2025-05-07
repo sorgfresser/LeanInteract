@@ -14,6 +14,7 @@ from lean_interact.interface import (
     ProofStep,
     UnpickleEnvironment,
     UnpickleProofState,
+    GetDeclType,
 )
 from lean_interact.server import AutoLeanServer, LeanServer
 
@@ -32,4 +33,5 @@ __all__ = [
     "PickleProofState",
     "UnpickleEnvironment",
     "UnpickleProofState",
+    "GetDeclType",
 ]
