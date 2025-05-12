@@ -58,7 +58,9 @@ Requirements:
 
 - Python >= 3.10
 - git
-- [Lean 4](https://leanprover-community.github.io/get_started.html) (Tip: use the `install-lean` command from LeanInteract)
+- [Lean 4](https://leanprover-community.github.io/get_started.html)
+  - **Tip:** use the cross-platform `install-lean` command from LeanInteract.
+  - Your `elan` version should be at least `4.0.0` (`elan --version`).
 
 ## Script examples
 
@@ -478,7 +480,7 @@ If you use LeanInteract in your research, please cite it as follows:
 @software{leaninteract,
   author = {Poiroux, Auguste and Kuncak, Viktor and Bosselut, Antoine},
   title = {LeanInteract: A Python Interface for Lean 4},
-  url = {https://github.com/augustepoiroux/lean-interact},
+  url = {https://github.com/augustepoiroux/LeanInteract},
   year = {2025}
 }
 ```
