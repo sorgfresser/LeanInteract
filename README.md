@@ -446,7 +446,9 @@ Common issues and their solutions:
 
 3. **Long waiting times during first run**: This is expected as Lean REPL is being downloaded and built. Additionally, if you are importing Mathlib it will take even more time. Subsequent runs will be much faster.
 
-4. **(Windows) Path too long error**: Windows has a maximum path length limitation of 260 characters.
+4. **`Failed during Lean project setup: Command '['lake', 'update']' returned non-zero exit status 1.`**: This error may occur if your `elan` version is outdated (i.e. < 4.0.0). To resolve this, update `elan` using `elan self update` or read the documentation [here](https://leanprover-community.github.io/get_started.html).
+
+5. **(Windows) Path too long error**: Windows has a maximum path length limitation of 260 characters.
 If you get an error similar to the following one, you are likely affected by this problem:
 
     ```
