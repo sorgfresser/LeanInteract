@@ -60,7 +60,10 @@ class TestFileLocks(unittest.TestCase):
     def tearDown(self):
         # Clean up temporary directory
         if os.path.exists(self.temp_dir):
-            shutil.rmtree(self.temp_dir)
+            try:
+                shutil.rmtree(self.temp_dir)
+            except PermissionError:
+                pass
 
     def test_config_repl_setup_lock(self):
         """Test that the REPL setup lock prevents concurrent access."""
