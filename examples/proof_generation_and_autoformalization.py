@@ -268,7 +268,7 @@ def run_proof_generation_pipeline(
         proofs = [f"by\n{proof}" for proof in proofs]
 
         # Sort the proofs by their frequency and length while keeping only unique proofs
-        proofs = sorted(proofs, key=lambda x: len(x))
+        proofs = sorted(proofs, key=len)
         proofs_freq = Counter(proofs)
         proofs = list(proofs_freq.keys())
 
@@ -364,21 +364,24 @@ def default_goedelprover() -> dict:
 if __name__ == "__main__":
     ## For DeepSeek Prover V1.5 and Goedel Prover, make sure to run this script on a GPU with at least 24GB of VRAM.
 
-    # dataset = "minif2f"
-    # split = "validation"
-    # lean_version = "v4.8.0"
-
-    dataset = "proofnetsharp"
-    split = "valid"
-    lean_version = "v4.8.0"
-
     gen_config = default_goedelprover()
 
+    # MiniF2F benchmark
     run_proof_generation_pipeline(
-        dataset_name=dataset,
-        split=split,
+        dataset_name="minif2f",
+        split="validation",
+        use_nl_proof_hint=False,
+        gen_config=gen_config,
+        lean_version="v4.8.0",
+        verbose=True,
+    )
+
+    # ProofNet# benchmark
+    run_proof_generation_pipeline(
+        dataset_name="proofnetsharp",
+        split="valid",
         use_nl_proof_hint=False,  # Set to True for proof autoformalization (only available for ProofNet#)
         gen_config=gen_config,
-        lean_version=lean_version,
+        lean_version="v4.8.0",
         verbose=True,
     )
