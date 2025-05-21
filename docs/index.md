@@ -1,7 +1,3 @@
----
-execute: true
----
-
 # LeanInteract
 
 [![PyPI version](https://img.shields.io/pypi/v/lean-interact.svg)](https://pypi.org/project/lean-interact/)
@@ -25,19 +21,19 @@ execute: true
 
 ### Install the package
 
-```
+```bash
 pip install lean-interact
 ```
 
 Install Lean 4 (if not already installed):
 
-```
+```bash
 install-lean
 ```
 
 ### Start using it in your Python scripts
 
-```python tags=["execute"]
+```python
 from lean_interact import LeanREPLConfig, LeanServer, Command
 
 # Create a configuration for the Lean REPL
@@ -47,8 +43,7 @@ config = LeanREPLConfig(verbose=True)
 server = LeanServer(config)  
 
 # Run a simple Lean theorem
-response = server.run(Command(cmd="theorem ex (n : Nat) : n = 5 → n = 5 := id"))
-print(response)
+server.run(Command(cmd="theorem ex (n : Nat) : n = 5 → n = 5 := id"))
 ```
 
 Check out the [Installation](installation.md) guide for detailed setup instructions and the [User Guide](user-guide/getting-started.md) for usage examples.
