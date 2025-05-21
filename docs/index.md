@@ -21,12 +21,18 @@ execute: true
 - **📦 Temporary Projects**: Easily instantiate temporary Lean environments
   - Useful for experimenting with benchmarks depending on [Mathlib](https://github.com/leanprover-community/mathlib4) like [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) and [MiniF2F](https://github.com/yangky11/miniF2F-lean4)
 
-## Getting Started
+## Quick Start
 
 ### Install the package
 
 ```
 pip install lean-interact
+```
+
+Install Lean 4 (if not already installed):
+
+```
+install-lean
 ```
 
 ### Start using it in your Python scripts
@@ -45,4 +51,4 @@ response = server.run(Command(cmd="theorem ex (n : Nat) : n = 5 → n = 5 := id"
 print(response)
 ```
 
-Check out the [Installation](installation.md) guide for setup instructions and the [User Guide](user-guide/getting-started.md) for detailed usage examples.
+Check out the [Installation](installation.md) guide for detailed setup instructions and the [User Guide](user-guide/getting-started.md) for usage examples.
