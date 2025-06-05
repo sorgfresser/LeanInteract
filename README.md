@@ -13,7 +13,7 @@
 - **🔗 Interactivity**: Execute Lean code and files directly from Python.
 - **🚀 Ease of Use**: LeanInteract abstracts the complexities of Lean setup and interaction.
 - **💻 Cross-platform**: Works on Windows, macOS, and Linux operating systems.
-- **🔧 Compatibility**: Supports all Lean versions between `v4.7.0-rc1` and `v4.19.0`.
+- **🔧 Compatibility**: Supports all Lean versions between `v4.7.0-rc1` and `v4.21.0-rc3`.
   - We backport the latest features of Lean REPL to older versions of Lean.
 - **📦 Temporary Projects**: Easily instantiate temporary Lean environments.
   - Useful for experimenting with benchmarks depending on [Mathlib](https://github.com/leanprover-community/mathlib4) like [ProofNet#](https://huggingface.co/datasets/PAug/ProofNetSharp) and [MiniF2F](https://github.com/yangky11/miniF2F-lean4).
@@ -426,7 +426,22 @@ Two versions of Lean servers are available:
 
 ### Custom Lean REPL
 
-To use a forked Lean REPL project, specify the git repository using the `repl_git` parameter in the `LeanREPLConfig`. Your fork should have a similar versioning format to <https://github.com/augustepoiroux/repl> (i.e. having a branch with commits for each Lean version). For assistance, feel free to contact [us](mailto:auguste.poiroux@epfl.ch).
+To use a forked Lean REPL project, specify the git repository using the `repl_git` parameter in the `LeanREPLConfig` and the target revision using the `repl_rev` parameter. For example:
+
+```python
+config = LeanREPLConfig(repl_rev="v4.21.0-rc3", repl_git="https://github.com/leanprover-community/repl", verbose=True)
+```
+
+> [!WARNING]
+>
+> Custom REPL implementations may have interfaces that are incompatible with LeanInteract's standard commands. If you encounter incompatibility issues, you can use the `run_dict` method from `LeanServer` to communicate directly with the REPL using the raw JSON protocol:
+>
+> ```python
+> # Using run_dict instead of the standard commands
+> result = server.run_dict({"cmd": "your_command_here"})
+> ```
+
+For assistance, feel free to contact [us](mailto:auguste.poiroux@epfl.ch).
 
 ## Similar tools
 
