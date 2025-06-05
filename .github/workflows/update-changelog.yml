@@ -19,32 +19,10 @@ jobs:
           python-version: '3.10'
 
       - name: Update Changelog
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
         run: |
-          # Get the release information
-          RELEASE_TAG="${{ github.event.release.tag_name }}"
-          RELEASE_NAME="${{ github.event.release.name }}"
-          RELEASE_BODY="${{ github.event.release.body }}"
-          RELEASE_DATE=$(date +"%B %d, %Y")
-
-          # Prepare the content to insert
-          CHANGELOG_ENTRY="## ${RELEASE_NAME} (${RELEASE_DATE})\n\n${RELEASE_BODY}\n\n"
-
-          # Check if changelog file exists
-          if [ ! -f "docs/changelog.md" ]; then
-            echo "# Changelog\n\nThis page documents the notable changes to LeanInteract.\n\n" > docs/changelog.md
-          fi
-
-          # Insert the new release notes after the header
-          awk -v entry="${CHANGELOG_ENTRY}" '
-          /^# Changelog/ {
-            print;
-            getline;
-            print;
-            print entry;
-            next;
-          }
-          { print }
-          ' docs/changelog.md > changelog.tmp && mv changelog.tmp docs/changelog.md
+          python docs/update_changelog.py --release-tag "${{ github.event.release.tag_name }}"
 
       - name: Commit and push changelog
         run: |
