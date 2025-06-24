@@ -35,6 +35,7 @@ from lean_interact.interface import (
 )
 from lean_interact.server import DEFAULT_TIMEOUT, AutoLeanServer, LeanServer
 from lean_interact.sessioncache import PickleSessionCache, PickleSessionState
+from lean_interact.utils import get_total_memory_usage
 
 
 class TestLeanServer(unittest.TestCase):
@@ -548,7 +549,7 @@ lean_exe "dummy" where
         # Get initial memory usage
         assert server._proc is not None
         server_process = psutil.Process(server._proc.pid)
-        start_mem = server_process.memory_info().rss / (1024 * 1024)  # Convert to MB
+        start_mem = get_total_memory_usage(server_process) / (1024 * 1024)  # Convert to MB
 
         # Run code in separate thread to allow memory monitoring
         result_queue = Queue()
@@ -579,7 +580,7 @@ lean_exe "dummy" where
         max_mem = start_mem
         while thread.is_alive():
             try:
-                current_mem = server_process.memory_info().rss / (1024 * 1024)
+                current_mem = get_total_memory_usage(server_process) / (1024 * 1024)
                 max_mem = max(max_mem, current_mem)
                 if current_mem > mem_limit:
                     server.kill()

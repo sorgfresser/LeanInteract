@@ -377,7 +377,7 @@ class AutoLeanServer(LeanServer):
             and self._proc is not None
             and self.config.memory_hard_limit_mb is not None
             and self._max_process_memory is not None
-            and get_total_memory_usage(psutil.Process())
+            and get_total_memory_usage(psutil.Process(self._proc.pid))
             >= self._max_process_memory * self.config.memory_hard_limit_mb * 1024**2
         ):
             self.kill()
