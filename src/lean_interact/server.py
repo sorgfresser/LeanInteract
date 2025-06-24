@@ -107,6 +107,11 @@ class LeanServer:
                         pass
             except Exception:
                 pass
+            finally:
+                try:
+                    self._proc.wait(timeout=1)  # Ensure the process is properly reaped
+                except Exception:
+                    pass
             if self._proc.stdin:
                 self._proc.stdin.close()
             if self._proc.stdout:

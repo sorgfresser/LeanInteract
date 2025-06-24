@@ -364,7 +364,7 @@ lean_exe "dummy" where
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         # Prepare restart_persistent_session_cache
         assert isinstance(server._session_cache, PickleSessionCache)
-        server._session_cache._cache[-1] = PickleSessionState(-2, 20, True, "")
+        server._session_cache._cache[-2] = PickleSessionState(-2, 20, True, "")
         with unittest.mock.patch.object(server, "_get_repl_state_id", return_value=20):
             mock_super.return_value = {"proofState": 20, "goals": [], "proofStatus": "Completed"}
             result = server.run(ProofStep(proof_state=-2, tactic="test"))
@@ -607,16 +607,16 @@ lean_exe "dummy" where
         env_id = result.env
 
         # Pickle the environment
-        temp_pickle_file = tempfile.NamedTemporaryFile(suffix=".olean", delete=False).name
+        temp_pickle = tempfile.NamedTemporaryFile(suffix=".olean", delete=False)
 
-        pickle_result = server.run(PickleEnvironment(env=env_id, pickle_to=temp_pickle_file), verbose=True)
+        pickle_result = server.run(PickleEnvironment(env=env_id, pickle_to=temp_pickle.name), verbose=True)
         self.assertIsInstance(pickle_result, CommandResponse)
 
         # Create a new server
         new_server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
         # Unpickle the environment in the new server
-        unpickle_result = new_server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle_file), verbose=True)
+        unpickle_result = new_server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle.name), verbose=True)
         assert isinstance(unpickle_result, CommandResponse)
         unpickled_env_id = unpickle_result.env
 
@@ -641,7 +641,8 @@ lean_exe "dummy" where
 
         # delete the temp file
         try:
-            os.remove(temp_pickle_file)
+            temp_pickle.close()
+            os.remove(temp_pickle.name)
         except (FileNotFoundError, PermissionError):
             pass
 
@@ -658,9 +659,9 @@ lean_exe "dummy" where
         assert isinstance(proof_state_id, int)
 
         # Pickle the proof state
-        temp_pickle_file = tempfile.NamedTemporaryFile(suffix=".olean", delete=False).name
+        temp_pickle = tempfile.NamedTemporaryFile(suffix=".olean", delete=False)
         pickle_result = server.run(
-            PickleProofState(proof_state=proof_state_id, pickle_to=temp_pickle_file), verbose=True
+            PickleProofState(proof_state=proof_state_id, pickle_to=temp_pickle.name), verbose=True
         )
         self.assertIsInstance(pickle_result, ProofStepResponse)
 
@@ -668,7 +669,7 @@ lean_exe "dummy" where
         new_server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
         # Unpickle the proof state in the new server
-        unpickle_result = new_server.run(UnpickleProofState(unpickle_proof_state_from=temp_pickle_file), verbose=True)
+        unpickle_result = new_server.run(UnpickleProofState(unpickle_proof_state_from=temp_pickle.name), verbose=True)
         assert isinstance(unpickle_result, ProofStepResponse)
         unpickled_proof_state_id = unpickle_result.proof_state
 
@@ -678,7 +679,8 @@ lean_exe "dummy" where
 
         # Delete the temp file
         try:
-            os.remove(temp_pickle_file)
+            temp_pickle.close()
+            os.remove(temp_pickle.name)
         except (FileNotFoundError, PermissionError):
             pass
 
@@ -686,28 +688,33 @@ lean_exe "dummy" where
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
         # Try to pickle a non-existent environment
-        temp_pickle_file = tempfile.NamedTemporaryFile(suffix=".olean", delete=False).name
-        result = server.run(PickleEnvironment(env=999, pickle_to=temp_pickle_file), verbose=True)
+        temp_pickle = tempfile.NamedTemporaryFile(suffix=".olean", delete=False)
+        result = server.run(PickleEnvironment(env=999, pickle_to=temp_pickle.name), verbose=True)
         assert isinstance(result, LeanError)
         self.assertEqual("unknown environment.", result.message.lower())
 
         # delete the temp file
-        os.remove(temp_pickle_file)
+        try:
+            temp_pickle.close()
+            os.remove(temp_pickle.name)
+        except (FileNotFoundError, PermissionError):
+            pass
 
     def test_unpickle_fails_with_invalid_data(self):
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
         # Try to unpickle invalid data
-        temp_pickle_file = tempfile.NamedTemporaryFile(suffix=".olean", delete=False).name
+        temp_pickle = tempfile.NamedTemporaryFile(suffix=".olean", delete=False)
 
         # Try to unpickle invalid data
         with self.assertRaises(ConnectionAbortedError):
-            server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle_file), verbose=True)
+            server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle.name), verbose=True)
         with self.assertRaises(ConnectionAbortedError):
-            server.run(UnpickleProofState(unpickle_proof_state_from=temp_pickle_file), verbose=True)
+            server.run(UnpickleProofState(unpickle_proof_state_from=temp_pickle.name), verbose=True)
 
         # delete the temp file
         try:
-            os.remove(temp_pickle_file)
+            temp_pickle.close()
+            os.remove(temp_pickle.name)
         except (FileNotFoundError, PermissionError):
             pass
 
@@ -742,13 +749,13 @@ lean_exe "dummy" where
         )
 
         # Pickle the environment
-        temp_pickle_file = tempfile.NamedTemporaryFile(suffix=".olean", delete=False).name
-        pickle_result = server.run(PickleEnvironment(env=env_id, pickle_to=temp_pickle_file), verbose=True)
+        temp_pickle = tempfile.NamedTemporaryFile(suffix=".olean", delete=False)
+        pickle_result = server.run(PickleEnvironment(env=env_id, pickle_to=temp_pickle.name), verbose=True)
         self.assertIsInstance(pickle_result, CommandResponse)
 
         # Create a new server and unpickle
         new_server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
-        unpickle_result = new_server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle_file), verbose=True)
+        unpickle_result = new_server.run(UnpickleEnvironment(unpickle_env_from=temp_pickle.name), verbose=True)
         assert isinstance(unpickle_result, CommandResponse)
         unpickled_env_id = unpickle_result.env
 
@@ -769,7 +776,8 @@ lean_exe "dummy" where
 
         # delete the temp file
         try:
-            os.remove(temp_pickle_file)
+            temp_pickle.close()
+            os.remove(temp_pickle.name)
         except (FileNotFoundError, PermissionError):
             pass
 

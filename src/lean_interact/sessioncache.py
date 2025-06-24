@@ -188,7 +188,7 @@ class PickleSessionCache(BaseSessionCache):
     def clear(self, verbose: bool = False) -> None:
         for state_data in list(self):
             self.remove(session_state_id=state_data.session_id, verbose=verbose)
-        assert not self._cache
+        assert not self._cache, f"Cache is not empty after clearing: {self._cache}"
 
     def __iter__(self) -> Iterator[PickleSessionState]:
         return iter(self._cache.values())
