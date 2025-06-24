@@ -2,6 +2,16 @@
 
 This page documents the notable changes to LeanInteract.
 
+## v0.6.1 (June 24, 2025)
+
+## What's Changed
+
+* Fix Lean version inference for `LocalProject` and `GitProject` by @augustepoiroux in <https://github.com/augustepoiroux/LeanInteract/pull/26>
+* Fix `ResourceWarning` issues when killing the REPL
+* Improve memory monitoring in `AutoLeanServer`
+
+**Full Changelog**: <https://github.com/augustepoiroux/LeanInteract/compare/v0.6.0...v0.6.1>
+
 ## v0.6.0 (June 05, 2025)
 
 ## What's Changed
