@@ -15,15 +15,14 @@ This guide covers common issues you might encounter when using LeanInteract.
 **Solutions**:
 
 - Reduce parallel processing or increase system memory
-- Use `AutoLeanServer` with conservative memory settings:
+- Limit the maximum amount of memory usage allocated to the REPL with `LeanREPLConfig`:
 
   ```python
-  from lean_interact import AutoLeanServer
-  server = AutoLeanServer(config, memory_threshold_mb=1000)  # Limit to 1GB
+  from lean_interact import AutoLeanServer, LeanREPLConfig
+  server = AutoLeanServer(LeanREPLConfig(memory_hard_limit_mb=1000)) # Limit to 1GB
   ```
 
-- Avoid working with large files or complex proofs in a single session
-- Use environment pickling to save and restore states across sessions
+- If you are working with large files or complex proofs in a single session, consider breaking them into smaller, more manageable pieces.
 
 ### Timeout Errors
 
@@ -34,10 +33,11 @@ This guide covers common issues you might encounter when using LeanInteract.
 
 **Solutions**:
 
-- Increase the timeout in the configuration:
+- Pass a higher timeout to `run()`/`async_run()`:
 
   ```python
-  config = LeanREPLConfig(timeout=60)  # 60 seconds
+  server = AutoLeanServer(LeanREPLConfig())
+  result = server.run(Command(cmd="..."), timeout=60)
   ```
 
 - Use `AutoLeanServer` for automatic recovery from timeouts:
