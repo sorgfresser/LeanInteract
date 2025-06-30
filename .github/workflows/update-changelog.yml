@@ -18,6 +18,11 @@ jobs:
         with:
           python-version: '3.10'
 
+      - name: Install dependencies
+        run: |
+          pip install --upgrade pip
+          pip install . --group dev
+
       - name: Update Changelog
         env:
           GITHUB_TOKEN: ${{ github.token }}
