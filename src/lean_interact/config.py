@@ -323,6 +323,10 @@ class LeanREPLConfig:
                 Whether to print additional information during the setup process.
         """
         # Initialize basic configuration
+        if lean_version:
+            lean_version = lean_version.removeprefix("leanprover/lean4:")
+            if not lean_version.startswith("v4"):
+                raise ValueError("Unable to parse Lean version format!")
         self.lean_version = lean_version
         self.project = project
         self.repl_git = repl_git
