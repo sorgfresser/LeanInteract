@@ -35,4 +35,4 @@ jobs:
           git config --local user.name "GitHub Action"
           git add docs/changelog.md
           git commit -m "Update changelog with ${{ github.event.release.tag_name }} release notes"
-          git push origin ${GITHUB_REF_NAME}
+          git push origin main

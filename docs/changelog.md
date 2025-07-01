@@ -2,6 +2,14 @@
 
 This page documents the notable changes to LeanInteract.
 
+## v0.6.3 (July 01, 2025)
+
+## What's Changed
+
+- Add support for Lean v4.22.0-rc1 and v4.22.0-rc2
+
+**Full Changelog**: <https://github.com/augustepoiroux/LeanInteract/compare/v0.6.2...v0.6.3>
+
 ## v0.6.2 (June 30, 2025)
 
 ## What's Changed
