@@ -1,7 +1,8 @@
-from typing import Annotated, Literal, Generator
-from typing_extensions import Self
 from collections import deque
+from typing import Annotated, Generator, Literal
+
 from pydantic import BaseModel, ConfigDict, Field
+from typing_extensions import Self
 
 # Classes and attributes are aligned with the Lean REPL: https://github.com/leanprover-community/repl/blob/2f0a3cb876b045cc0fe550ca3a625bc479816739/REPL/JSON.lean
 
@@ -292,7 +293,21 @@ class InfoTree(BaseModel):
 
     node: Node
     kind: Literal[
-        "TacticInfo", "TermInfo", "PartialTermInfo", "CommandInfo", "MacroExpansionInfo", "OptionInfo", "FieldInfo", "CompletionInfo", "UserWidgetInfo", "CustomInfo", "FVarAliasInfo", "FieldRedeclInfo", "ChoiceInfo", "DelabTermInfo"]
+        "TacticInfo",
+        "TermInfo",
+        "PartialTermInfo",
+        "CommandInfo",
+        "MacroExpansionInfo",
+        "OptionInfo",
+        "FieldInfo",
+        "CompletionInfo",
+        "UserWidgetInfo",
+        "CustomInfo",
+        "FVarAliasInfo",
+        "FieldRedeclInfo",
+        "ChoiceInfo",
+        "DelabTermInfo",
+    ]
     children: list[Self] = Field(default_factory=list)
 
     def dfs_walk(self) -> Generator[Self, None, None]:
@@ -326,7 +341,7 @@ class InfoTree(BaseModel):
             Yields the command nodes of the InfoTree.
         """
         for tree in self.dfs_walk():
-            if tree.kind != "CommmandInfo":
+            if tree.kind != "CommandInfo":
                 continue
             assert isinstance(tree.node, CommandNode)
             yield tree
@@ -338,6 +353,8 @@ class InfoTree(BaseModel):
             Yields the variable nodes of the InfoTree.
         """
         for tree in self.commands():
+            if not isinstance(tree.node, (CommandNode, TermNode)):
+                continue
             if tree.node.elaborator != "Lean.Elab.Command.elabVariable":
                 continue
             yield tree
@@ -349,6 +366,8 @@ class InfoTree(BaseModel):
              Yields the theorems of the InfoTree.
         """
         for tree in self.commands():
+            if tree.node is None:
+                continue
             if tree.node.stx.kind != "Lean.Parser.Command.declaration":
                 continue
             if tree.node.stx.arg_kinds[-1] != "Lean.Parser.Command.theorem":
@@ -362,6 +381,8 @@ class InfoTree(BaseModel):
              Yields the InfoTree nodes representing Docstrings.
         """
         for tree in self.commands():
+            if not isinstance(tree.node, (CommandNode, TermNode)):
+                continue
             if tree.node.elaborator != "Lean.Elab.Command.elabModuleDoc":
                 continue
             yield tree
@@ -373,19 +394,28 @@ class InfoTree(BaseModel):
              Yields the InfoTree nodes for namespaces.
         """
         for tree in self.commands():
+            if not isinstance(tree.node, (CommandNode, TermNode)):
+                continue
             if tree.node.elaborator != "Lean.Elab.Command.elabNamespace":
                 continue
             yield tree
 
     def pp_up_to(self, end_pos: Pos) -> str:
+        """
+        Get the pretty-printed string of the InfoTree up to a given position.
+        """
+        if self.node is None:
+            raise ValueError("InfoTree node is None, cannot pretty-print!")
         if end_pos > self.node.stx.range.finish or end_pos < self.node.stx.range.start:
             raise ValueError("end_pos has to be in bounds!")
+        if self.node.stx.pp is None:
+            raise ValueError("InfoTree node has no pretty-printed string!")
         lines = self.node.stx.pp.splitlines(keepends=True)
         result = []
         for line_idx in range(end_pos.line + 1 - self.node.stx.range.start.line):
             line = lines[line_idx]
             if line_idx == end_pos.line - self.node.stx.range.start.line:
-                line = line[:end_pos.column]
+                line = line[: end_pos.column]
             result.append(line)
         return "".join(result)
 
@@ -399,8 +429,12 @@ class InfoTree(BaseModel):
         """
         found = None
         for tree in self.theorems():
+            if tree.node is None:
+                continue
             thm_range = tree.node.stx.range
             # Sorry inside
+            if sorry.start_pos is None or sorry.end_pos is None:
+                continue
             if sorry.start_pos < thm_range.start or sorry.end_pos > thm_range.finish:
                 continue
             assert found is None
