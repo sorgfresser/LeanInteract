@@ -353,9 +353,7 @@ class InfoTree(BaseModel):
             Yields the variable nodes of the InfoTree.
         """
         for tree in self.commands():
-            if not isinstance(tree.node, (CommandNode, TermNode)):
-                continue
-            if tree.node.elaborator != "Lean.Elab.Command.elabVariable":
+            if tree.node.elaborator != "Lean.Elab.Command.elabVariable":  # type: ignore
                 continue
             yield tree
 
@@ -366,11 +364,9 @@ class InfoTree(BaseModel):
              Yields the theorems of the InfoTree.
         """
         for tree in self.commands():
-            if tree.node is None:
+            if tree.node.stx.kind != "Lean.Parser.Command.declaration":  # type: ignore
                 continue
-            if tree.node.stx.kind != "Lean.Parser.Command.declaration":
-                continue
-            if tree.node.stx.arg_kinds[-1] != "Lean.Parser.Command.theorem":
+            if tree.node.stx.arg_kinds[-1] != "Lean.Parser.Command.theorem":  # type: ignore
                 continue
             yield tree
 
@@ -381,9 +377,7 @@ class InfoTree(BaseModel):
              Yields the InfoTree nodes representing Docstrings.
         """
         for tree in self.commands():
-            if not isinstance(tree.node, (CommandNode, TermNode)):
-                continue
-            if tree.node.elaborator != "Lean.Elab.Command.elabModuleDoc":
+            if tree.node.elaborator != "Lean.Elab.Command.elabModuleDoc":  # type: ignore
                 continue
             yield tree
 
@@ -394,9 +388,7 @@ class InfoTree(BaseModel):
              Yields the InfoTree nodes for namespaces.
         """
         for tree in self.commands():
-            if not isinstance(tree.node, (CommandNode, TermNode)):
-                continue
-            if tree.node.elaborator != "Lean.Elab.Command.elabNamespace":
+            if tree.node.elaborator != "Lean.Elab.Command.elabNamespace":  # type: ignore
                 continue
             yield tree
 
@@ -429,9 +421,7 @@ class InfoTree(BaseModel):
         """
         found = None
         for tree in self.theorems():
-            if tree.node is None:
-                continue
-            thm_range = tree.node.stx.range
+            thm_range = tree.node.stx.range  # type: ignore
             # Sorry inside
             if sorry.start_pos is None or sorry.end_pos is None:
                 continue

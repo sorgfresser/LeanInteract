@@ -540,7 +540,7 @@ lean_exe "dummy" where
         self.assertIsInstance(result, CommandResponse)
         assert isinstance(result, CommandResponse)
         self.assertIsNone(result.infotree)
-    
+
     def test_infotree_theorems(self):
         """Test infotree theorems for full infotrees"""
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
@@ -549,6 +549,7 @@ lean_exe "dummy" where
         self.assertIsInstance(result, CommandResponse)
         assert isinstance(result, CommandResponse)
         self.assertIsNotNone(result.infotree)
+        assert result.infotree is not None
         assert len(list(result.infotree[0].commands())) == 1
         assert len(list(result.infotree[0].theorems())) == 1
 
@@ -556,10 +557,13 @@ lean_exe "dummy" where
         """Test infotree theorems for full infotrees"""
         server = AutoLeanServer(config=LeanREPLConfig(verbose=True))
 
-        result = server.run(Command(cmd="variable (p : Prop)\ntheorem infotree_test (h : p) : 0 = 0 := by rfl", infotree="full"))
+        result = server.run(
+            Command(cmd="variable (p : Prop)\ntheorem infotree_test (h : p) : 0 = 0 := by rfl", infotree="full")
+        )
         self.assertIsInstance(result, CommandResponse)
         assert isinstance(result, CommandResponse)
         self.assertIsNotNone(result.infotree)
+        assert result.infotree is not None
         assert len(list(result.infotree[0].variables())) == 1
         assert len(list(result.infotree[1].theorems())) == 1
 
@@ -573,6 +577,7 @@ lean_exe "dummy" where
         assert len(result.sorries) == 1
         sorry = result.sorries[0]
         self.assertIsNotNone(result.infotree)
+        assert result.infotree is not None
         assert len(list(result.infotree[0].theorems())) == 1
         self.assertIsNotNone(result.infotree[0].theorem_for_sorry(sorry))
 
