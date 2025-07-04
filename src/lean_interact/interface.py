@@ -292,7 +292,7 @@ class InfoTree(BaseModel):
 
     node: Node
     kind: Literal[
-        "TacticInfo", "TermInfo", "PartialTermInfo", "CommmandInfo", "MacroExpansionInfo", "OptionInfo", "FieldInfo", "CompletionInfo", "UserWidgetInfo", "CustomInfo", "FVarAliasInfo", "FieldRedeclInfo", "ChoiceInfo", "DelabTermInfo"]
+        "TacticInfo", "TermInfo", "PartialTermInfo", "CommandInfo", "MacroExpansionInfo", "OptionInfo", "FieldInfo", "CompletionInfo", "UserWidgetInfo", "CustomInfo", "FVarAliasInfo", "FieldRedeclInfo", "ChoiceInfo", "DelabTermInfo"]
     children: list[Self] = Field(default_factory=list)
 
     def dfs_walk(self) -> Generator[Self, None, None]:
@@ -471,7 +471,7 @@ class CommandResponse(BaseREPLResponse):
 
     env: int
     tactics: list[Tactic] = Field(default_factory=list)
-    infotree: InfoTree | None = None
+    infotree: list[InfoTree] | None = None
 
 
 class ProofStepResponse(BaseREPLResponse):
